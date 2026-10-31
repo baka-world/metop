@@ -21,6 +21,15 @@ pub enum View {
     Apps,
 }
 
+/// One sample of an app's three metrics, so switching the map metric does not
+/// mix series (a PSS history is useless when the view shows RSS).
+#[derive(Clone, Copy, Default)]
+pub struct AppSample {
+    pub pss_kb: u64,
+    pub uss_kb: u64,
+    pub rss_kb: u64,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum AppMetric {
     Pss,
@@ -108,6 +117,9 @@ pub struct App {
     /// App groups for the treemap, recomputed per snapshot (collapsed to the
     /// top few percent so the map does not dissolve into slivers).
     pub app_groups: Vec<AppGroup>,
+    /// Metric history per app name (only the collapsed groups are tracked:
+    /// ~20-40 entries, not all 330).
+    pub app_history: HashMap<String, VecDeque<AppSample>>,
     pub app_sel: usize,
     pub app_metric: AppMetric,
     pub app_state: TableState,
@@ -157,6 +169,7 @@ impl App {
             cgroup_sort: CgroupSort::Current,
             cgroup_sel: 0,
             app_groups: Vec::new(),
+            app_history: HashMap::new(),
             app_sel: 0,
             app_metric: AppMetric::Pss,
             app_state: TableState::default(),
@@ -294,6 +307,22 @@ impl App {
         rows
     }
 
+    /// Series for the selected metric of `name`, for the header sparkline.
+    pub fn app_series(&self, name: &str, metric: AppMetric) -> Vec<u64> {
+        self.app_history
+            .get(name)
+            .map(|h| {
+                h.iter()
+                    .map(|s| match metric {
+                        AppMetric::Pss => s.pss_kb,
+                        AppMetric::Uss => s.uss_kb,
+                        AppMetric::Rss => s.rss_kb,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     pub fn visible_apps(&self) -> Vec<&AppGroup> {
         let needle = self.filter.to_lowercase();
         self.app_groups
@@ -355,6 +384,21 @@ impl App {
             crate::apps::group(&snap.rows, &snap.pss, &snap.pid_cgroup, &snap.pid_exe),
             0.005,
         );
+        let mut app_seen: std::collections::HashSet<&str> =
+            std::collections::HashSet::with_capacity(self.app_groups.len());
+        for g in &self.app_groups {
+            app_seen.insert(g.name.as_str());
+            let h = self.app_history.entry(g.name.clone()).or_default();
+            h.push_back(AppSample {
+                pss_kb: g.pss_kb,
+                uss_kb: g.uss_kb,
+                rss_kb: g.rss_kb,
+            });
+            while h.len() > HISTORY {
+                h.pop_front();
+            }
+        }
+        self.app_history.retain(|name, _| app_seen.contains(name.as_str()));
 
         // The cgroup list only changes on the 5 s scan; sampling it every tick
         // would record the same value five times and shrink the window.
