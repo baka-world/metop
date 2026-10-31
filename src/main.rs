@@ -9,20 +9,24 @@ mtop - Linux memory analysis TUI
 
 USAGE:
     mtop [--pid PID]
+    mtop --json [--pid PID]
 
 OPTIONS:
     -p, --pid PID   start with PID selected (also enables Enter drill-down)
+        --json      print one snapshot as JSON and exit (diffable; no TUI)
     -h, --help      show this help
 
 KEYS:
     j/k, ↑/↓        move selection          g/G     top / bottom
     s               cycle sort key          r       reverse order
     f               filter process name/pid Enter   per-process VMA breakdown
-    Esc             back / clear filter     q       quit
+    f (detail)      filter mapping names    Esc     clear filter / back
+    q               quit
 ";
 
 fn main() -> ExitCode {
     let mut start_pid = None;
+    let mut json_out = false;
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut i = 0;
     while i < args.len() {
@@ -37,6 +41,7 @@ fn main() -> ExitCode {
                     }
                 }
             }
+            "--json" => json_out = true,
             "-h" | "--help" => {
                 print!("{HELP}");
                 return ExitCode::SUCCESS;
@@ -47,6 +52,20 @@ fn main() -> ExitCode {
             }
         }
         i += 1;
+    }
+
+    if json_out {
+        // Detail is only worth serializing when a pid was explicitly asked for.
+        let snap = sampler::snapshot_once(start_pid, start_pid.is_some());
+        return match mtop::json::write_json(&snap) {
+            Ok(()) => ExitCode::SUCCESS,
+            // `mtop --json | head` is normal usage, not an error.
+            Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("mtop: {e}");
+                ExitCode::FAILURE
+            }
+        };
     }
 
     let (cmd_tx, cmd_rx) = mpsc::channel();

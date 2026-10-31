@@ -1,0 +1,87 @@
+//! The JSON mode is a public interface (diffing, scripts), so it is tested
+//! through the real binary rather than by calling the serializer.
+
+use std::process::Command;
+
+fn run(args: &[&str]) -> serde_json::Value {
+    let out = Command::new(env!("CARGO_BIN_EXE_mtop"))
+        .args(args)
+        .output()
+        .expect("spawn mtop");
+    assert!(
+        out.status.success(),
+        "mtop {args:?} failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
+        panic!(
+            "invalid JSON: {e}\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        )
+    })
+}
+
+#[test]
+fn snapshot_is_sorted_and_self_consistent() {
+    let v = run(&["--json"]);
+    assert_eq!(v["schema"], "mtop.snapshot.v1");
+
+    let procs = v["procs"].as_array().expect("procs array");
+    assert!(procs.len() > 5, "suspiciously few processes: {}", procs.len());
+
+    // Stable pid ordering is what makes `diff a.json b.json` usable.
+    let pids: Vec<u64> = procs.iter().map(|p| p["pid"].as_u64().unwrap()).collect();
+    assert!(
+        pids.windows(2).all(|w| w[0] < w[1]),
+        "procs are not sorted by pid"
+    );
+
+    let total = v["mem"]["total_kb"].as_u64().unwrap();
+    assert!(
+        (1_000_000..10_000_000_000).contains(&total),
+        "mem total looks like the wrong unit: {total} kB"
+    );
+
+    let readable: Vec<&serde_json::Value> = procs.iter().filter(|p| !p["pss"].is_null()).collect();
+    assert!(!readable.is_empty(), "not one process had a readable PSS");
+    for p in readable {
+        let pss = p["pss"]["pss_kb"].as_u64().unwrap();
+        let rss = p["pss"]["rss_kb"].as_u64().unwrap();
+        assert!(
+            pss <= rss,
+            "{} reports pss {pss} kB > rss {rss} kB",
+            p["comm"]
+        );
+        // The per-kind split must add up to the total (both come from the same rollup).
+        let parts = p["pss"]["pss_anon_kb"].as_u64().unwrap()
+            + p["pss"]["pss_file_kb"].as_u64().unwrap()
+            + p["pss"]["pss_shmem_kb"].as_u64().unwrap();
+        assert!(
+            parts.abs_diff(pss) <= 1024,
+            "{} kind split {parts} kB vs pss {pss} kB",
+            p["comm"]
+        );
+    }
+}
+
+#[test]
+fn detail_is_serialized_for_the_requested_pid() {
+    let me = std::process::id();
+    let v = run(&["--json", "--pid", &me.to_string()]);
+
+    let d = &v["detail"];
+    assert_eq!(d["pid"].as_u64(), Some(me as u64));
+    assert!(v["detail_error"].is_null(), "detail failed: {}", v["detail_error"]);
+    assert!(d["vma_count"].as_u64().unwrap() > 0, "no VMAs parsed");
+
+    let groups = d["groups"].as_array().expect("groups");
+    assert!(!groups.is_empty(), "no groups");
+    // Group PSS must not exceed the process-level rollup by more than drift.
+    let sum: u64 = groups.iter().map(|g| g["pss_kb"].as_u64().unwrap()).sum();
+    let total = d["rollup"]["pss_kb"].as_u64().unwrap();
+    assert!(
+        sum.abs_diff(total) <= total / 5 + 4096,
+        "group pss {sum} kB vs rollup {total} kB"
+    );
+}

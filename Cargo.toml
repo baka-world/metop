@@ -12,6 +12,8 @@ license = "MIT"
 ratatui = "=0.30.2"
 # typed /proc reader: smaps/smaps_rollup/statm/meminfo parsing is theirs, not ours
 procfs = { version = "0.18", default-features = false }
+# only for `--json`: a snapshot must be diffable without the TUI
+serde_json = "1"
 
 [profile.release]
 lto = "thin"
