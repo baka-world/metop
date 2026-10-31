@@ -2,13 +2,13 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, VecDeque};
 use std::time::Duration;
 
+use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::widgets::TableState;
-use ratatui::DefaultTerminal;
 
-use crate::model::{Focus, ProcRow, Snapshot, SortKey};
 use crate::apps::AppGroup;
 use crate::cgroup::CgroupMem;
+use crate::model::{Focus, ProcRow, Snapshot, SortKey};
 use crate::procfs::{Vma, VmaGroup};
 use crate::ui;
 
@@ -255,10 +255,7 @@ impl App {
                     .partial_cmp(&self.ratio(b))
                     .unwrap_or(Ordering::Equal),
                 SortKey::Pid => a.pid.cmp(&b.pid),
-                SortKey::Comm => a
-                    .comm
-                    .to_lowercase()
-                    .cmp(&b.comm.to_lowercase()),
+                SortKey::Comm => a.comm.to_lowercase().cmp(&b.comm.to_lowercase()),
             };
             let ord = if desc { ord.reverse() } else { ord };
             ord.then_with(|| a.pid.cmp(&b.pid))
@@ -366,7 +363,10 @@ impl App {
             return None;
         }
         self.last_sent = Some(target);
-        Some(Focus::Set { pid: target.0, want_detail: target.1 })
+        Some(Focus::Set {
+            pid: target.0,
+            want_detail: target.1,
+        })
     }
 
     pub fn on_snapshot(&mut self, snap: Snapshot) {
@@ -398,7 +398,8 @@ impl App {
                 h.pop_front();
             }
         }
-        self.app_history.retain(|name, _| app_seen.contains(name.as_str()));
+        self.app_history
+            .retain(|name, _| app_seen.contains(name.as_str()));
 
         // The cgroup list only changes on the 5 s scan; sampling it every tick
         // would record the same value five times and shrink the window.
@@ -426,7 +427,11 @@ impl App {
         }
         self.snap = Some(snap);
         // A different process means a different mapping tree: reset expansion.
-        let pid = self.snap.as_ref().and_then(|s| s.detail.as_ref()).map(|d| d.pid);
+        let pid = self
+            .snap
+            .as_ref()
+            .and_then(|s| s.detail.as_ref())
+            .map(|d| d.pid);
         if pid != self.detail_pid {
             self.detail_pid = pid;
             self.expanded.clear();
@@ -588,7 +593,8 @@ impl App {
             KeyCode::Char('z') if self.detail => self.expanded.clear(),
             KeyCode::Char('Z') if self.detail => {
                 if let Some(d) = self.snap.as_ref().and_then(|s| s.detail.as_ref()) {
-                    self.expanded.extend(d.report.groups.iter().map(|g| g.label.clone()));
+                    self.expanded
+                        .extend(d.report.groups.iter().map(|g| g.label.clone()));
                 }
             }
             KeyCode::Esc => {

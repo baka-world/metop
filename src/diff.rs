@@ -24,7 +24,10 @@ pub struct Opts {
 
 impl Default for Opts {
     fn default() -> Self {
-        Opts { min_delta_kb: 0, top: 30 }
+        Opts {
+            min_delta_kb: 0,
+            top: 30,
+        }
     }
 }
 
@@ -55,10 +58,7 @@ fn parse(text: &str, name: &str) -> Result<Doc, String> {
         None => return Err(format!("{name}: missing schema")),
     }
     let at = v.get("at_unix_ms").and_then(Value::as_u64).unwrap_or(0);
-    let self_pid = v
-        .get("self_pid")
-        .and_then(Value::as_u64)
-        .map(|p| p as u32);
+    let self_pid = v.get("self_pid").and_then(Value::as_u64).map(|p| p as u32);
     let procs = v
         .get("procs")
         .and_then(Value::as_array)
@@ -72,13 +72,24 @@ fn parse(text: &str, name: &str) -> Result<Doc, String> {
         map.insert(
             pid as u32,
             Entry {
-                comm: p.get("comm").and_then(Value::as_str).unwrap_or("?").to_string(),
+                comm: p
+                    .get("comm")
+                    .and_then(Value::as_str)
+                    .unwrap_or("?")
+                    .to_string(),
                 rss_kb: p.get("rss_kb").and_then(Value::as_u64).unwrap_or(0),
-                pss_kb: p.get("pss").and_then(|v| v.get("pss_kb")).and_then(Value::as_u64),
+                pss_kb: p
+                    .get("pss")
+                    .and_then(|v| v.get("pss_kb"))
+                    .and_then(Value::as_u64),
             },
         );
     }
-    Ok(Doc { at_ms: at, self_pid, procs: map })
+    Ok(Doc {
+        at_ms: at,
+        self_pid,
+        procs: map,
+    })
 }
 
 fn signed_kb(delta: i64) -> String {

@@ -4,7 +4,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::model::{
-    Detail, Focus, PssInfo, ProcRow, Snapshot, PSS_DENIED_TTL, PSS_MAX_AGE, PSS_REFRESH_AFTER,
+    Detail, Focus, PSS_DENIED_TTL, PSS_MAX_AGE, PSS_REFRESH_AFTER, ProcRow, PssInfo, Snapshot,
 };
 use crate::procfs;
 
@@ -126,9 +126,8 @@ pub fn pss_targets(
     // Unreadable pids keep their place in the row list but must not consume the
     // budget again until the denial expires.
     let allowed = |pid: u32| {
-        let fresh = |m: &HashMap<u32, Instant>| {
-            m.get(&pid).is_some_and(|at| at.elapsed() < denied_ttl)
-        };
+        let fresh =
+            |m: &HashMap<u32, Instant>| m.get(&pid).is_some_and(|at| at.elapsed() < denied_ttl);
         !fresh(denied) && !fresh(no_mm)
     };
     let mut order: Vec<u32> = Vec::with_capacity(rows.len() + 1);
@@ -161,7 +160,8 @@ fn tick(st: &mut State, pss_budget: Duration) -> Snapshot {
     let pids = procfs::list_pids();
     let mut rows: Vec<ProcRow> = Vec::with_capacity(pids.len());
     for pid in pids {
-        let (Some(rss_kb), Some(comm)) = (procfs::read_rss(pid, page_kb), procfs::read_comm(pid)) else {
+        let (Some(rss_kb), Some(comm)) = (procfs::read_rss(pid, page_kb), procfs::read_comm(pid))
+        else {
             continue;
         };
         let delta_kb = match st.prev_rss.get(&pid) {
@@ -169,13 +169,19 @@ fn tick(st: &mut State, pss_budget: Duration) -> Snapshot {
             None => 0,
         };
         st.prev_rss.insert(pid, rss_kb);
-        rows.push(ProcRow { pid, comm, rss_kb, delta_kb });
+        rows.push(ProcRow {
+            pid,
+            comm,
+            rss_kb,
+            delta_kb,
+        });
     }
     rows.sort_by_key(|r| std::cmp::Reverse(r.rss_kb));
     let sweep_ms = t_sweep.elapsed().as_secs_f32() * 1000.0;
 
     // Keep the previous map from growing forever.
-    st.prev_rss.retain(|pid, _| rows.iter().any(|r| r.pid == *pid));
+    st.prev_rss
+        .retain(|pid, _| rows.iter().any(|r| r.pid == *pid));
 
     // --- Tier 2: exact PSS/USS, budgeted -------------------------------------
     let t_pss = Instant::now();
@@ -193,7 +199,13 @@ fn tick(st: &mut State, pss_budget: Duration) -> Snapshot {
         }
         match procfs::read_rollup(pid) {
             Ok(rollup) => {
-                st.pss.insert(pid, PssInfo { rollup, at: Instant::now() });
+                st.pss.insert(
+                    pid,
+                    PssInfo {
+                        rollup,
+                        at: Instant::now(),
+                    },
+                );
                 st.denied.remove(&pid);
                 st.no_mm.remove(&pid);
             }
@@ -220,9 +232,10 @@ fn tick(st: &mut State, pss_budget: Duration) -> Snapshot {
     let mut detail = None;
     if st.want_detail {
         if let Some(pid) = st.focus {
-            let stale = st.detail.as_ref().is_none_or(|d| {
-                d.pid != pid || d.at.elapsed() > DETAIL_MAX_AGE
-            });
+            let stale = st
+                .detail
+                .as_ref()
+                .is_none_or(|d| d.pid != pid || d.at.elapsed() > DETAIL_MAX_AGE);
             if stale {
                 let t = Instant::now();
                 match procfs::read_smaps(pid) {
@@ -235,7 +248,11 @@ fn tick(st: &mut State, pss_budget: Duration) -> Snapshot {
                             .unwrap_or_default();
                         st.detail = Some(Detail {
                             pid,
-                            comm: rows.iter().find(|r| r.pid == pid).map(|r| r.comm.clone()).unwrap_or_default(),
+                            comm: rows
+                                .iter()
+                                .find(|r| r.pid == pid)
+                                .map(|r| r.comm.clone())
+                                .unwrap_or_default(),
                             cmdline: procfs::read_cmdline(pid),
                             report,
                             rollup,
@@ -281,7 +298,11 @@ fn tick(st: &mut State, pss_budget: Duration) -> Snapshot {
         st.pid_exe = std::sync::Arc::new(procfs::pid_exe());
     }
 
-    let fresh: Vec<&PssInfo> = st.pss.values().filter(|p| p.at.elapsed() < PSS_MAX_AGE).collect();
+    let fresh: Vec<&PssInfo> = st
+        .pss
+        .values()
+        .filter(|p| p.at.elapsed() < PSS_MAX_AGE)
+        .collect();
     let covered_pss_kb = fresh.iter().map(|p| p.rollup.pss_kb).sum();
     let covered = fresh.len();
 
@@ -295,7 +316,11 @@ fn tick(st: &mut State, pss_budget: Duration) -> Snapshot {
         pid_cgroup: st.pid_cgroup.clone(),
         pid_exe: st.pid_exe.clone(),
         detail,
-        detail_error: if st.want_detail { st.detail_error.clone() } else { None },
+        detail_error: if st.want_detail {
+            st.detail_error.clone()
+        } else {
+            None
+        },
         sweep_ms,
         pss_ms,
         covered_pss_kb,
@@ -313,11 +338,19 @@ mod tests {
     use std::time::Duration;
 
     fn row(pid: u32, rss_kb: u64) -> ProcRow {
-        ProcRow { pid, comm: format!("p{pid}"), rss_kb, delta_kb: 0 }
+        ProcRow {
+            pid,
+            comm: format!("p{pid}"),
+            rss_kb,
+            delta_kb: 0,
+        }
     }
 
     fn cached(age: Duration) -> PssInfo {
-        PssInfo { rollup: Rollup::default(), at: Instant::now() - age }
+        PssInfo {
+            rollup: Rollup::default(),
+            at: Instant::now() - age,
+        }
     }
 
     #[test]
@@ -371,7 +404,11 @@ mod tests {
             Duration::from_secs(2),
             Duration::from_secs(30),
         );
-        assert_eq!(got, vec![1, 2], "oldest first, fresh pid 3 untouched: {got:?}");
+        assert_eq!(
+            got,
+            vec![1, 2],
+            "oldest first, fresh pid 3 untouched: {got:?}"
+        );
     }
 
     #[test]
@@ -408,6 +445,10 @@ mod tests {
             Duration::from_secs(2),
             Duration::from_secs(30),
         );
-        assert_eq!(got, vec![2, 3], "fresh denials skipped, expired retried: {got:?}");
+        assert_eq!(
+            got,
+            vec![2, 3],
+            "fresh denials skipped, expired retried: {got:?}"
+        );
     }
 }

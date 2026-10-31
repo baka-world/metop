@@ -22,7 +22,12 @@ fn self_rollup_is_internally_consistent() {
         r.rss_kb
     );
     assert!(r.uss_kb <= r.rss_kb, "uss {} > rss {}", r.uss_kb, r.rss_kb);
-    assert!(r.anon_kb <= r.rss_kb, "anon {} > rss {}", r.anon_kb, r.rss_kb);
+    assert!(
+        r.anon_kb <= r.rss_kb,
+        "anon {} > rss {}",
+        r.anon_kb,
+        r.rss_kb
+    );
 }
 
 #[test]
@@ -75,7 +80,10 @@ fn meminfo_is_plausible() {
 fn kernel_threads_report_zero_rss_without_panicking() {
     // pid 2 (kthreadd) is a kernel thread; statm exists, memory is ~0.
     if let Some(rss) = procfs::read_rss(2, procfs::page_size() / 1024) {
-        assert!(rss < 1024 * 1024, "kernel thread rss unexpectedly large: {rss}");
+        assert!(
+            rss < 1024 * 1024,
+            "kernel thread rss unexpectedly large: {rss}"
+        );
     }
 }
 

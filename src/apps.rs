@@ -55,9 +55,7 @@ pub fn unescape_scope(s: &str) -> String {
 fn strip_trailing_pid(s: &str) -> &str {
     match s.rsplit_once('-') {
         Some((head, tail))
-            if !head.is_empty()
-                && !tail.is_empty()
-                && tail.bytes().all(|b| b.is_ascii_digit()) =>
+            if !head.is_empty() && !tail.is_empty() && tail.bytes().all(|b| b.is_ascii_digit()) =>
         {
             head
         }
@@ -280,20 +278,25 @@ mod tests {
             "gnome-sing-box"
         );
         // A scope without a numeric tail is kept as is.
-        assert_eq!(
-            app_name("x", Some("/a/app-plain.scope"), None),
-            "plain"
-        );
+        assert_eq!(app_name("x", Some("/a/app-plain.scope"), None), "plain");
     }
 
     #[test]
     fn non_scope_cgroups_fall_back_to_exe_then_comm() {
         assert_eq!(
-            app_name("node", Some("/user.slice/session-2.scope"), Some("/usr/bin/node-22")),
+            app_name(
+                "node",
+                Some("/user.slice/session-2.scope"),
+                Some("/usr/bin/node-22")
+            ),
             "node-22"
         );
         assert_eq!(
-            app_name("codex", Some("/user.slice"), Some("/usr/bin/codex (deleted)")),
+            app_name(
+                "codex",
+                Some("/user.slice"),
+                Some("/usr/bin/codex (deleted)")
+            ),
             "codex"
         );
         assert_eq!(app_name("kworker/0:1", Some("/"), None), "kworker/0:1");
@@ -370,11 +373,19 @@ mod tests {
         let rects = squarify(&values, area);
         assert_eq!(rects.len(), values.len());
         for r in &rects {
-            assert!(r.right() <= area.right() && r.bottom() <= area.bottom(), "{r:?}");
+            assert!(
+                r.right() <= area.right() && r.bottom() <= area.bottom(),
+                "{r:?}"
+            );
         }
         for i in 0..rects.len() {
             for j in i + 1..rects.len() {
-                assert!(overlap(rects[i], rects[j]) <= 1, "{:?} vs {:?}", rects[i], rects[j]);
+                assert!(
+                    overlap(rects[i], rects[j]) <= 1,
+                    "{:?} vs {:?}",
+                    rects[i],
+                    rects[j]
+                );
             }
         }
         // Areas track values: the biggest tile holds the biggest share.
@@ -402,6 +413,9 @@ mod tests {
     fn treemap_handles_degenerate_input() {
         assert!(squarify(&[], Rect::new(0, 0, 10, 10)).is_empty());
         assert_eq!(squarify(&[0, 0], Rect::new(0, 0, 10, 10))[0].width, 0);
-        assert_eq!(squarify(&[5], Rect::new(2, 3, 20, 10))[0], Rect::new(2, 3, 20, 10));
+        assert_eq!(
+            squarify(&[5], Rect::new(2, 3, 20, 10))[0],
+            Rect::new(2, 3, 20, 10)
+        );
     }
 }

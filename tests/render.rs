@@ -7,10 +7,10 @@ use std::time::Instant;
 
 use mtop::app::App;
 use mtop::cgroup::CgroupMem;
-use mtop::model::{Detail, PssInfo, ProcRow, Snapshot, SortKey};
+use mtop::model::{Detail, ProcRow, PssInfo, Snapshot, SortKey};
 use mtop::procfs::{MemInfo, Rollup, SmapsReport, Vma, VmaGroup};
-use ratatui::backend::TestBackend;
 use ratatui::Terminal;
+use ratatui::backend::TestBackend;
 
 fn rollup(rss: u64, pss: u64, uss: u64) -> Rollup {
     Rollup {
@@ -26,18 +26,55 @@ fn rollup(rss: u64, pss: u64, uss: u64) -> Rollup {
 
 fn snapshot() -> Snapshot {
     let mut pss = HashMap::new();
-    pss.insert(100, PssInfo { rollup: rollup(500_000, 300_000, 250_000), at: Instant::now() });
-    pss.insert(200, PssInfo { rollup: rollup(200_000, 180_000, 170_000), at: Instant::now() });
+    pss.insert(
+        100,
+        PssInfo {
+            rollup: rollup(500_000, 300_000, 250_000),
+            at: Instant::now(),
+        },
+    );
+    pss.insert(
+        200,
+        PssInfo {
+            rollup: rollup(200_000, 180_000, 170_000),
+            at: Instant::now(),
+        },
+    );
     // pid 300 deliberately has no PSS entry: the table must show a dash.
     Snapshot {
         rows: vec![
-            ProcRow { pid: 100, comm: "chrome".into(), rss_kb: 500_000, delta_kb: 4096 },
-            ProcRow { pid: 200, comm: "node".into(), rss_kb: 200_000, delta_kb: -2048 },
-            ProcRow { pid: 300, comm: "sleepy-daemon-that-has-a-very-long-name".into(), rss_kb: 100_000, delta_kb: 0 },
+            ProcRow {
+                pid: 100,
+                comm: "chrome".into(),
+                rss_kb: 500_000,
+                delta_kb: 4096,
+            },
+            ProcRow {
+                pid: 200,
+                comm: "node".into(),
+                rss_kb: 200_000,
+                delta_kb: -2048,
+            },
+            ProcRow {
+                pid: 300,
+                comm: "sleepy-daemon-that-has-a-very-long-name".into(),
+                rss_kb: 100_000,
+                delta_kb: 0,
+            },
             // pid 400 is unreadable (EACCES), not merely unsampled.
-            ProcRow { pid: 400, comm: "root-owned-daemon".into(), rss_kb: 50_000, delta_kb: 0 },
+            ProcRow {
+                pid: 400,
+                comm: "root-owned-daemon".into(),
+                rss_kb: 50_000,
+                delta_kb: 0,
+            },
             // pid 500 is a kernel thread: no address space, no PSS even as root.
-            ProcRow { pid: 500, comm: "kthreadd".into(), rss_kb: 0, delta_kb: 0 },
+            ProcRow {
+                pid: 500,
+                comm: "kthreadd".into(),
+                rss_kb: 0,
+                delta_kb: 0,
+            },
         ],
         pss,
         mem: MemInfo {
@@ -63,8 +100,26 @@ fn snapshot() -> Snapshot {
                         swap_kb: 0,
                         count: 2,
                         vmas: vec![
-                            Vma { start: 0x7f00_0000_0000, end: 0x7f00_0000_1000, perms: "rw-p".into(), size_kb: 60_000, pss_kb: 60_000, uss_kb: 59_000, anon_kb: 60_000, swap_kb: 0 },
-                            Vma { start: 0x7f00_0000_2000, end: 0x7f00_0000_3000, perms: "rw-p".into(), size_kb: 40_000, pss_kb: 30_000, uss_kb: 29_000, anon_kb: 30_000, swap_kb: 0 },
+                            Vma {
+                                start: 0x7f00_0000_0000,
+                                end: 0x7f00_0000_1000,
+                                perms: "rw-p".into(),
+                                size_kb: 60_000,
+                                pss_kb: 60_000,
+                                uss_kb: 59_000,
+                                anon_kb: 60_000,
+                                swap_kb: 0,
+                            },
+                            Vma {
+                                start: 0x7f00_0000_2000,
+                                end: 0x7f00_0000_3000,
+                                perms: "rw-p".into(),
+                                size_kb: 40_000,
+                                pss_kb: 30_000,
+                                uss_kb: 29_000,
+                                anon_kb: 30_000,
+                                swap_kb: 0,
+                            },
                         ],
                     },
                     VmaGroup {
@@ -75,7 +130,16 @@ fn snapshot() -> Snapshot {
                         anon_kb: 0,
                         swap_kb: 128,
                         count: 1,
-                        vmas: vec![Vma { start: 0x7f00_0001_0000, end: 0x7f00_0001_0800, perms: "r-xp".into(), size_kb: 2_000, pss_kb: 1_000, uss_kb: 200, anon_kb: 0, swap_kb: 128 }],
+                        vmas: vec![Vma {
+                            start: 0x7f00_0001_0000,
+                            end: 0x7f00_0001_0800,
+                            perms: "r-xp".into(),
+                            size_kb: 2_000,
+                            pss_kb: 1_000,
+                            uss_kb: 200,
+                            anon_kb: 0,
+                            swap_kb: 128,
+                        }],
                     },
                 ],
                 vma_count: 5,
@@ -106,7 +170,10 @@ fn snapshot() -> Snapshot {
         }),
         sweep_ms: 18.0,
         pss_ms: 42.0,
-        pressure: mtop::procfs::Pressure { some10: 1.5, full10: 0.25 },
+        pressure: mtop::procfs::Pressure {
+            some10: 1.5,
+            full10: 0.25,
+        },
         scan_seq: 1,
         pid_exe: Arc::new(HashMap::from([
             (100, "/opt/google/chrome/chrome".to_string()),
@@ -115,9 +182,15 @@ fn snapshot() -> Snapshot {
             (400, "/usr/sbin/root-daemon".to_string()),
         ])),
         pid_cgroup: Arc::new(HashMap::from([
-            (100, "/user.slice/user-1000.slice/session-2.scope".to_string()),
+            (
+                100,
+                "/user.slice/user-1000.slice/session-2.scope".to_string(),
+            ),
             (200, "/system.slice".to_string()),
-            (300, "/user.slice/user-1000.slice/session-2.scope".to_string()),
+            (
+                300,
+                "/user.slice/user-1000.slice/session-2.scope".to_string(),
+            ),
             (400, "/system.slice".to_string()),
         ])),
         cgroups: vec![
@@ -193,7 +266,10 @@ fn process_table_renders_sorted_with_pss_gaps_marked() {
     // unreadable ones instead of letting them look like zero.
     // Denominator excludes kernel threads (2 of 4 eligible readable), so the
     // number cannot be dragged down by something sudo cannot fix.
-    assert!(text.contains("coverage 2/4"), "coverage line missing:\n{text}");
+    assert!(
+        text.contains("coverage 2/4"),
+        "coverage line missing:\n{text}"
+    );
     assert!(text.contains("1 n/a"), "denied count missing:\n{text}");
     assert!(
         text.contains("needs root"),
@@ -225,7 +301,10 @@ fn filter_matches_comm_and_pid() {
 
     app.filter = "20".into();
     let pids: Vec<u32> = app.visible().iter().map(|r| r.pid).collect();
-    assert!(pids.contains(&200), "numeric filter should match pid: {pids:?}");
+    assert!(
+        pids.contains(&200),
+        "numeric filter should match pid: {pids:?}"
+    );
 
     app.filter = "no-such-process".into();
     assert!(app.visible().is_empty());
@@ -244,8 +323,14 @@ fn detail_view_shows_grouped_vmas() {
     assert!(text.contains("MAPPING"), "missing VMA header:\n{text}");
     assert!(text.contains("[heap]"), "missing heap group:\n{text}");
     assert!(text.contains("libc.so.6"), "missing libc group:\n{text}");
-    assert!(text.contains("vm mappings by PSS"), "missing detail title:\n{text}");
-    assert!(text.contains("5 VMAs in 2 groups"), "missing vma summary:\n{text}");
+    assert!(
+        text.contains("vm mappings by PSS"),
+        "missing detail title:\n{text}"
+    );
+    assert!(
+        text.contains("5 VMAs in 2 groups"),
+        "missing vma summary:\n{text}"
+    );
 }
 
 #[test]
@@ -285,9 +370,18 @@ fn detail_filter_narrows_mappings() {
     assert_eq!(app.detail_len(), 1, "filter should leave one group");
 
     let text = render(&mut app);
-    assert!(text.contains("libc.so.6"), "filtered group missing:\n{text}");
-    assert!(!text.contains("[heap]"), "filtered-out group still rendered:\n{text}");
-    assert!(text.contains("filter libc"), "filter not shown in title:\n{text}");
+    assert!(
+        text.contains("libc.so.6"),
+        "filtered group missing:\n{text}"
+    );
+    assert!(
+        !text.contains("[heap]"),
+        "filtered-out group still rendered:\n{text}"
+    );
+    assert!(
+        text.contains("filter libc"),
+        "filter not shown in title:\n{text}"
+    );
 }
 
 #[test]
@@ -298,7 +392,10 @@ fn editing_targets_the_detail_filter_not_the_process_filter() {
     app.detail = true;
 
     app.on_key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE));
-    assert!(app.editing && app.editing_detail, "f must edit the vma filter");
+    assert!(
+        app.editing && app.editing_detail,
+        "f must edit the vma filter"
+    );
     for c in "libc".chars() {
         app.on_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
     }
@@ -367,7 +464,10 @@ fn enter_expands_a_group_into_its_individual_vmas() {
     assert_eq!(app.detail_len(), 4, "[heap] must expand into 2 VMAs");
 
     let text = render(&mut app);
-    assert!(text.contains("7f0000000000"), "vma address missing:\n{text}");
+    assert!(
+        text.contains("7f0000000000"),
+        "vma address missing:\n{text}"
+    );
     assert!(text.contains('▾'), "expanded marker missing:\n{text}");
     assert!(text.contains("rw-p"), "vma perms missing:\n{text}");
 
@@ -399,16 +499,25 @@ fn tab_switches_to_the_cgroup_view() {
 
     let procs = render(&mut app);
     assert!(procs.contains("PSS MIX"), "process view expected first");
-    assert!(procs.contains("psi 1.5/0.2%"), "system psi missing from the header:\n{procs}");
+    assert!(
+        procs.contains("psi 1.5/0.2%"),
+        "system psi missing from the header:\n{procs}"
+    );
 
     app.on_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     let text = render(&mut app);
     assert!(text.contains("CGROUP"), "cgroup header missing:\n{text}");
-    assert!(text.contains("session-2.scope"), "cgroup path missing:\n{text}");
+    assert!(
+        text.contains("session-2.scope"),
+        "cgroup path missing:\n{text}"
+    );
     assert!(text.contains("CURRENT"), "cgroup columns missing:\n{text}");
     assert!(text.contains("PSI10"), "psi column missing:\n{text}");
     assert!(text.contains("12.5%"), "cgroup psi not rendered:\n{text}");
-    assert!(!text.contains("PSS MIX"), "process columns leaked into cgroup view");
+    assert!(
+        !text.contains("PSS MIX"),
+        "process columns leaked into cgroup view"
+    );
     // Biggest first, and an OOM count is shown for the unlucky slice.
     assert!(
         text.find("session-2.scope").unwrap() < text.find("/system.slice").unwrap(),
@@ -431,8 +540,18 @@ fn cgroup_view_sorts_and_filters() {
 
     // /system.slice has less anon but more file than the user slice? both less.
     app.cgroup_sort = mtop::app::CgroupSort::File;
-    let order: Vec<&str> = app.visible_cgroups().iter().map(|c| c.path.as_str()).collect();
-    assert_eq!(order, vec!["/user.slice/user-1000.slice/session-2.scope", "/system.slice"]);
+    let order: Vec<&str> = app
+        .visible_cgroups()
+        .iter()
+        .map(|c| c.path.as_str())
+        .collect();
+    assert_eq!(
+        order,
+        vec![
+            "/user.slice/user-1000.slice/session-2.scope",
+            "/system.slice"
+        ]
+    );
 
     app.filter = "system".into();
     assert_eq!(app.visible_cgroups().len(), 1);
@@ -454,15 +573,27 @@ fn cgroup_drill_lists_members_of_the_subtree() {
     assert_eq!(app.cgroup_members().len(), 2, "only this cgroup's procs");
 
     let text = render(&mut app);
-    assert!(text.contains("procs in cgroup subtree"), "drill view missing:\n{text}");
-    assert!(text.contains("oom "), "oom series missing from the drill summary:\n{text}");
+    assert!(
+        text.contains("procs in cgroup subtree"),
+        "drill view missing:\n{text}"
+    );
+    assert!(
+        text.contains("oom "),
+        "oom series missing from the drill summary:\n{text}"
+    );
     assert!(text.contains("total"), "oom totals missing:\n{text}");
     assert!(text.contains("chrome"), "member missing:\n{text}");
     // The ratio must survive its column width and the share bar must not be
     // scaled against total RAM (which rounds a 500 MB row to zero cells).
-    assert!(text.contains("60%"), "PSS/RSS clipped by the column:\n{text}");
+    assert!(
+        text.contains("60%"),
+        "PSS/RSS clipped by the column:\n{text}"
+    );
     assert!(text.contains('█'), "share bar rendered empty:\n{text}");
-    assert!(!text.contains("node"), "member of another cgroup leaked:\n{text}");
+    assert!(
+        !text.contains("node"),
+        "member of another cgroup leaked:\n{text}"
+    );
 
     app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     assert!(app.drill.is_none(), "Esc must return to the cgroup list");
@@ -475,7 +606,11 @@ fn drill_down_uses_subtree_membership() {
     app.on_snapshot(snapshot());
 
     app.drill = Some("/user.slice".into());
-    assert_eq!(app.cgroup_members().len(), 2, "parent must include descendants");
+    assert_eq!(
+        app.cgroup_members().len(),
+        2,
+        "parent must include descendants"
+    );
 
     app.drill = Some("/".into());
     assert_eq!(app.cgroup_members().len(), 4, "root subtree is everything");
@@ -506,7 +641,10 @@ fn cgroup_psi_history_is_recorded_and_plotted() {
 
     app.view = mtop::app::View::Cgroups;
     let text = render(&mut app);
-    assert!(text.contains("psi 7.5%"), "psi trend label missing:\n{text}");
+    assert!(
+        text.contains("psi 7.5%"),
+        "psi trend label missing:\n{text}"
+    );
 }
 
 /// Selected rows are tinted (background only) so semantic colours survive.
@@ -533,7 +671,10 @@ fn selected_row_is_tinted_without_losing_semantic_colours() {
 
     let procs = selected_row_styles(&mut app);
     let tinted = procs.iter().filter(|(_, bg)| *bg == HL_BG).count();
-    assert!(tinted > 60, "selected row background missing ({tinted} cells)");
+    assert!(
+        tinted > 60,
+        "selected row background missing ({tinted} cells)"
+    );
 
     // The SHARE bar keeps its colour instead of being flattened to one tone.
     let bar_cells = procs
@@ -556,7 +697,11 @@ fn highlight_never_falls_back_to_the_terminal_background() {
     use mtop::ui::HL_BG;
     use ratatui::style::{Color, Modifier};
 
-    assert_ne!(HL_BG, Color::Reset, "highlight must not inherit the background");
+    assert_ne!(
+        HL_BG,
+        Color::Reset,
+        "highlight must not inherit the background"
+    );
     assert_ne!(HL_BG, Color::Black, "black on a dark terminal is invisible");
 
     let mut app = App::new(None);
@@ -589,14 +734,20 @@ fn apps_view_groups_processes_and_drills_into_the_process_table() {
 
     let groups: Vec<String> = app.visible_apps().iter().map(|g| g.name.clone()).collect();
     assert_eq!(groups[0], "chrome", "biggest app first: {groups:?}");
-    assert!(groups.contains(&"others (2)".to_string()), "tail not collapsed: {groups:?}");
+    assert!(
+        groups.contains(&"others (2)".to_string()),
+        "tail not collapsed: {groups:?}"
+    );
 
     let text = render(&mut app);
     assert!(text.contains("apps"), "apps view title missing:\n{text}");
     assert!(text.contains("chrome"), "tile label missing:\n{text}");
 
     app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    assert!(matches!(app.view, View::Procs), "Enter must drill into procs");
+    assert!(
+        matches!(app.view, View::Procs),
+        "Enter must drill into procs"
+    );
     assert!(app.pid_filter.is_some());
     let pids: Vec<u32> = app.visible().iter().map(|r| r.pid).collect();
     assert_eq!(pids, vec![100, 300], "only chrome processes: {pids:?}");
@@ -623,8 +774,14 @@ fn apps_view_falls_back_to_a_list_when_narrow() {
         }
         text.push('\n');
     }
-    assert!(text.contains("APP"), "list fallback header missing:\n{text}");
-    assert!(text.contains("PROCS"), "list fallback columns missing:\n{text}");
+    assert!(
+        text.contains("APP"),
+        "list fallback header missing:\n{text}"
+    );
+    assert!(
+        text.contains("PROCS"),
+        "list fallback columns missing:\n{text}"
+    );
 }
 
 #[test]
@@ -648,6 +805,9 @@ fn apps_history_tracks_each_metric_separately() {
         app.app_series("chrome", AppMetric::Pss),
         vec![300_000, 300_000]
     );
-    assert_eq!(app.app_series("chrome", AppMetric::Uss), vec![250_000, 250_000]);
+    assert_eq!(
+        app.app_series("chrome", AppMetric::Uss),
+        vec![250_000, 250_000]
+    );
     assert!(app.app_series("nope", AppMetric::Pss).is_empty());
 }
