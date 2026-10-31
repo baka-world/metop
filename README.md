@@ -1,5 +1,9 @@
 # mtop
 
+[![CI](https://github.com/baka-world/mtop/actions/workflows/ci.yml/badge.svg)](https://github.com/baka-world/mtop/actions/workflows/ci.yml)
+[![Release](https://github.com/baka-world/mtop/actions/workflows/release.yml/badge.svg)](https://github.com/baka-world/mtop/actions/workflows/release.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Linux 内存分析 TUI：按 RSS / **PSS** / **USS** 看进程，按映射聚合下钻到 VMA。
 
 `htop` 只给 RSS；把共享库算 N 遍的"内存排行"会骗人。mtop 用内核的 PSS 口径回答"谁真的占了内存"，并给出每个进程的内存花在了哪些映射上。
@@ -15,6 +19,15 @@ Linux 内存分析 TUI：按 RSS / **PSS** / **USS** 看进程，按映射聚合
 │  512136 jetbrains-toolb       308M    281M    279M     91% -  0.0M ████   ████████████
 └──────────────────────────────────────────────────────────────────────────────────┘
  q quit │ j/k move │ g/G ends │ s sort (RSS) │ r reverse │ f filter │ Enter vma detail
+```
+
+## 安装
+
+```sh
+# 预编译静态二进制（musl，无运行时依赖）
+gh release download v0.1.0 --repo baka-world/mtop --pattern '*x86_64-unknown-linux-musl.tar.gz'
+tar -xzf mtop-v0.1.0-x86_64-unknown-linux-musl.tar.gz
+sudo install -m755 mtop-v0.1.0-x86_64-unknown-linux-musl /usr/local/bin/mtop
 ```
 
 ## 构建与运行
