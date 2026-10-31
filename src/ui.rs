@@ -4,7 +4,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Sparkline, Table};
 use ratatui::Frame;
 
-use crate::app::App;
+use crate::app::{App, DetailRow};
 use crate::model::{ProcRow, SortKey, PSS_MAX_AGE};
 use crate::procfs::fmt_kb;
 
@@ -448,27 +448,59 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
         chunks[0],
     );
 
-    let needle = app.detail_filter.to_lowercase();
-    let groups: Vec<&crate::procfs::VmaGroup> = r
-        .groups
+    let detail_rows = app.detail_rows();
+    let max_pss = detail_rows
         .iter()
-        .filter(|g| needle.is_empty() || g.label.to_lowercase().contains(&needle))
-        .collect();
-    let max_pss = groups.iter().map(|g| g.pss_kb).max().unwrap_or(1).max(1);
-    let rows: Vec<Row> = groups
+        .filter_map(|row| match row {
+            DetailRow::Group(g) => Some(g.pss_kb),
+            DetailRow::Vma(..) => None,
+        })
+        .max()
+        .unwrap_or(1)
+        .max(1);
+    let rows: Vec<Row> = detail_rows
         .iter()
-        .map(|g| {
-            let frac = g.pss_kb as f64 / max_pss as f64;
-            Row::new(vec![
-                Cell::from(truncate(&g.label, 44)),
-                Cell::from(format!("{:>9}", fmt_kb(g.pss_kb))),
-                Cell::from(format!("{:>9}", fmt_kb(g.uss_kb))),
-                Cell::from(format!("{:>9}", fmt_kb(g.anon_kb))),
-                Cell::from(format!("{:>9}", fmt_kb(g.swap_kb))),
-                Cell::from(format!("{:>9}", fmt_kb(g.size_kb))),
-                Cell::from(format!("{:>5}", g.count)),
-                split_cell_scaled(g.uss_kb, g.pss_kb.saturating_sub(g.uss_kb), frac),
-            ])
+        .map(|row| match row {
+            DetailRow::Group(g) => {
+                let frac = g.pss_kb as f64 / max_pss as f64;
+                let marker = if g.vmas.is_empty() {
+                    "  "
+                } else if app.expanded.contains(&g.label) {
+                    "▾ "
+                } else {
+                    "▸ "
+                };
+                Row::new(vec![
+                    Cell::from(truncate(&format!("{marker}{}", g.label), 44)),
+                    Cell::from(format!("{:>9}", fmt_kb(g.pss_kb))),
+                    Cell::from(format!("{:>9}", fmt_kb(g.uss_kb))),
+                    Cell::from(format!("{:>9}", fmt_kb(g.anon_kb))),
+                    Cell::from(format!("{:>9}", fmt_kb(g.swap_kb))),
+                    Cell::from(format!("{:>9}", fmt_kb(g.size_kb))),
+                    Cell::from(format!("{:>5}", g.count)),
+                    split_cell_scaled(g.uss_kb, g.pss_kb.saturating_sub(g.uss_kb), frac),
+                ])
+            }
+            DetailRow::Vma(g, v) => {
+                // Scale inside the group: a 2 MB VMA next to a 234 MB group
+                // would otherwise round to zero cells.
+                let denom = g.vmas.first().map(|v| v.pss_kb).unwrap_or(1).max(1);
+                let frac = v.pss_kb as f64 / denom as f64;
+                let dim = Style::new().fg(Color::DarkGray);
+                Row::new(vec![
+                    Cell::from(Text::from(Span::styled(
+                        truncate(&format!("    {:x}-{:x} {}", v.start, v.end, v.perms), 44),
+                        dim,
+                    ))),
+                    Cell::from(format!("{:>9}", fmt_kb(v.pss_kb))),
+                    Cell::from(format!("{:>9}", fmt_kb(v.uss_kb))),
+                    Cell::from(format!("{:>9}", fmt_kb(v.anon_kb))),
+                    Cell::from(format!("{:>9}", fmt_kb(v.swap_kb))),
+                    Cell::from(format!("{:>9}", fmt_kb(v.size_kb))),
+                    Cell::from(""),
+                    split_cell_scaled(v.uss_kb, v.pss_kb.saturating_sub(v.uss_kb), frac),
+                ])
+            }
         })
         .collect();
 
@@ -484,8 +516,8 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
     ])
     .style(Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD));
 
-    let title = if needle.is_empty() {
-        " vm mappings by PSS  (Esc back, j/k scroll, f filter) ".to_string()
+    let title = if app.detail_filter.is_empty() {
+        " vm mappings by PSS  (Enter expand, Esc back, f filter) ".to_string()
     } else {
         format!(" vm mappings by PSS  filter {} ", app.detail_filter)
     };
@@ -523,7 +555,7 @@ fn footer(f: &mut Frame, area: Rect, app: &App) {
         ])
     } else if app.detail {
         Line::from(Span::styled(
-            " q quit │ j/k scroll │ f vma filter │ Esc clear/back │ Enter back ",
+            " q quit │ j/k │ Enter expand │ z/Z collapse/expand all │ f filter │ Esc back ",
             Style::new().fg(Color::DarkGray),
         ))
     } else {

@@ -50,7 +50,9 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | F11 | 按 PSS/USS/比值排序时，覆盖率未满则标题标注 `ranking incomplete` | `render` 断言 + 实机帧 |
 | F12 | 进程内存构成：anon / file / shmem / swap-pss / THP / KSM，表格里用堆叠条、详情页给出数值 | 实机：chrome `anon 243M file 57M shmem 4.3M`，与 `/proc/PID/smaps_rollup` 一致 |
 | F13 | 详情页可过滤映射名（`f`），与进程过滤互不干扰 | `detail_filter_narrows_mappings`、`editing_targets_the_detail_filter...` |
-| F14 | `--json` 输出一次性快照：稳定按 PID 排序、显式 `_kb` 单位、带 schema 版本 | `tests/json.rs` 通过真实二进制校验 |
+| F14 | `--json` 输出一次性快照：稳定按 PID 排序、显式 `_kb` 单位、带 schema 版本与 `self_pid` | `tests/json.rs` 通过真实二进制校验 |
+| F15 | 详情页把映射展开为逐 VMA（地址区间、权限、PSS/USS/anon/swap/size） | `enter_expands_a_group_into_its_individual_vmas`、实机 1266 个 VMA |
+| F16 | `--diff A.json B.json` 按 \|ΔRSS\| 排序输出，标注 new/gone，排除快照写者自身 | `tests/diff.rs`（3 个场景 + 写者排除） |
 
 ## 5. 数据来源与精度
 
@@ -92,8 +94,8 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | `r` | 反向排序 |
 | `f` | 过滤输入；`Enter` 应用，`Esc` 取消（详情页中过滤映射名，互不干扰） |
 | `Esc`（详情） | 有映射过滤时先清除过滤，再按一次退出详情 |
-| `Enter` | 进入 VMA 详情 / 返回 |
-| `Esc` | 返回 / 清除过滤 |
+| `Enter` | 进入详情；在详情内展开/收起映射（`z`/`Z` 全部收起/展开） |
+| `Esc` | 清除过滤 / 返回 |
 | `q`、`Ctrl-C` | 退出 |
 
 ## 8. 已知风险
@@ -104,14 +106,16 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 4. **PID 复用**：扫描期间进程退出/复用 PID，某一行可能短暂混合两个进程的数据。
 4b. **读不到 ≠ 不占内存**：`n/a` 的进程（多为 root 进程）仍有 RSS，只是拿不到 PSS。要全量 PSS 就用 `sudo` 运行；这条限制来自内核的 ptrace 权限模型，不是实现缺陷。
 5. **内核线程**：`smaps_rollup` 为空，PSS 显示 `—`，不是 0。
-6. **ratatui 0.30 拆包后的 API 漂移**：`Cargo.toml` 用 `=0.30.2` 锁定，升级需单独评估。
+6. **快照的 new/gone 语义**：`--diff` 只比较两份快照，进程在两次采样之间重启会同时表现为 gone + new（PID 变化）；写快照的 `mtop` 自身按 `self_pid` 排除。
+7. **ratatui 0.30 拆包后的 API 漂移**：`Cargo.toml` 用 `=0.30.2` 锁定，升级需单独评估。
 
 ## 9. 里程碑
 
-- **M1（当前）**：两层采样 + 进程表 + VMA 聚合详情 + 趋势 + 过滤/排序 + 24 个测试 + 实机验证。
+- **M1（当前）**：两层采样 + 进程表 + VMA 聚合详情 + 趋势 + 过滤/排序 + 30 个测试 + 实机验证。
 - **M1.1（已完成，见 commit）**：PSS 覆盖率策略——预算按"未知优先、其后最旧优先"分配；EACCES 负缓存 30 s；分母改为可读进程数；陈旧值加 `~` 后缀。
 - **M2（进行中）**：
   - 已完成：PSS 构成（anon/file/shmem/swap-pss/THP/KSM）；映射过滤；`--json` 快照（稳定排序、schema 版本、`_kb` 单位）。
-  - 待做：VMA 单行展开（组 → 逐 VMA）；两次快照 diff 视图；`--json` 的字段筛选参数。
+  - 已完成（第二轮）：VMA 组展开到单行；`--diff` 文本视图（含 `self_pid` 排除）。
+  - 待做：`--json` 的字段筛选参数；diff 的阈值/过滤开关。
   - 备忘：`wora-observability-linux-mm` 只在需要 VMA 级元数据（KSM 明细、pagemap、UFFD）时才引入；`procfs` 已经覆盖当前全部字段。
 - **M3**：`--json` 脚本模式；cgroup/容器聚合；两次快照对比视图。

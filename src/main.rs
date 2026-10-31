@@ -10,23 +10,27 @@ mtop - Linux memory analysis TUI
 USAGE:
     mtop [--pid PID]
     mtop --json [--pid PID]
+    mtop --diff A.json B.json
 
 OPTIONS:
     -p, --pid PID   start with PID selected (also enables Enter drill-down)
         --json      print one snapshot as JSON and exit (diffable; no TUI)
+        --diff A B  compare two --json snapshots, print what changed and exit
     -h, --help      show this help
 
 KEYS:
     j/k, ↑/↓        move selection          g/G     top / bottom
     s               cycle sort key          r       reverse order
     f               filter process name/pid Enter   per-process VMA breakdown
-    f (detail)      filter mapping names    Esc     clear filter / back
+    f (detail)      filter mapping names    Enter   expand a mapping into VMAs
+    z / Z (detail)  collapse / expand all   Esc     clear filter / back
     q               quit
 ";
 
 fn main() -> ExitCode {
     let mut start_pid = None;
     let mut json_out = false;
+    let mut diff: Option<(String, String)> = None;
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut i = 0;
     while i < args.len() {
@@ -42,6 +46,20 @@ fn main() -> ExitCode {
                 }
             }
             "--json" => json_out = true,
+            "--diff" => {
+                let a = args.get(i + 1).cloned();
+                let b = args.get(i + 2).cloned();
+                match (a, b) {
+                    (Some(a), Some(b)) => {
+                        diff = Some((a, b));
+                        i += 2;
+                    }
+                    _ => {
+                        eprintln!("mtop: --diff needs two JSON snapshot paths");
+                        return ExitCode::from(2);
+                    }
+                }
+            }
             "-h" | "--help" => {
                 print!("{HELP}");
                 return ExitCode::SUCCESS;
@@ -52,6 +70,29 @@ fn main() -> ExitCode {
             }
         }
         i += 1;
+    }
+
+    if let Some((a_path, b_path)) = diff {
+        let read = |p: &str| {
+            std::fs::read_to_string(p).map_err(|e| format!("{p}: {e}"))
+        };
+        let text = read(&a_path)
+            .and_then(|a| Ok((a, read(&b_path)?)))
+            .and_then(|(a, b)| mtop::diff::render(&a, &b, 30));
+        return match text {
+            Ok(text) => match mtop::json::write_str(&text) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("mtop: {e}");
+                    ExitCode::FAILURE
+                }
+            },
+            Err(e) => {
+                eprintln!("mtop: {e}");
+                ExitCode::from(2)
+            }
+        };
     }
 
     if json_out {

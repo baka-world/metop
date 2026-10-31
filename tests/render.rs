@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use mtop::app::App;
 use mtop::model::{Detail, PssInfo, ProcRow, Snapshot, SortKey};
-use mtop::procfs::{MemInfo, Rollup, SmapsReport, VmaGroup};
+use mtop::procfs::{MemInfo, Rollup, SmapsReport, Vma, VmaGroup};
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
 
@@ -50,8 +50,29 @@ fn snapshot() -> Snapshot {
             cmdline: "/usr/bin/chrome --type=renderer".into(),
             report: SmapsReport {
                 groups: vec![
-                    VmaGroup { label: "[heap]".into(), size_kb: 100_000, pss_kb: 90_000, uss_kb: 88_000, anon_kb: 90_000, swap_kb: 0, count: 1 },
-                    VmaGroup { label: "/usr/lib/libc.so.6".into(), size_kb: 2_000, pss_kb: 1_000, uss_kb: 200, anon_kb: 0, swap_kb: 128, count: 4 },
+                    VmaGroup {
+                        label: "[heap]".into(),
+                        size_kb: 100_000,
+                        pss_kb: 90_000,
+                        uss_kb: 88_000,
+                        anon_kb: 90_000,
+                        swap_kb: 0,
+                        count: 2,
+                        vmas: vec![
+                            Vma { start: 0x7f00_0000_0000, end: 0x7f00_0000_1000, perms: "rw-p".into(), size_kb: 60_000, pss_kb: 60_000, uss_kb: 59_000, anon_kb: 60_000, swap_kb: 0 },
+                            Vma { start: 0x7f00_0000_2000, end: 0x7f00_0000_3000, perms: "rw-p".into(), size_kb: 40_000, pss_kb: 30_000, uss_kb: 29_000, anon_kb: 30_000, swap_kb: 0 },
+                        ],
+                    },
+                    VmaGroup {
+                        label: "/usr/lib/libc.so.6".into(),
+                        size_kb: 2_000,
+                        pss_kb: 1_000,
+                        uss_kb: 200,
+                        anon_kb: 0,
+                        swap_kb: 128,
+                        count: 1,
+                        vmas: vec![Vma { start: 0x7f00_0001_0000, end: 0x7f00_0001_0800, perms: "r-xp".into(), size_kb: 2_000, pss_kb: 1_000, uss_kb: 200, anon_kb: 0, swap_kb: 128 }],
+                    },
                 ],
                 vma_count: 5,
                 rss_kb: 500_000,
@@ -271,4 +292,40 @@ fn pss_mix_bar_has_distinct_segment_colors() {
         colors.iter().any(|c| c.contains("Cyan")),
         "file segment missing: {colors:?}"
     );
+}
+
+#[test]
+fn enter_expands_a_group_into_its_individual_vmas() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = App::new(None);
+    app.on_snapshot(snapshot());
+    app.detail = true;
+    assert_eq!(app.detail_len(), 2, "two groups, nothing expanded");
+
+    app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(app.detail_len(), 4, "[heap] must expand into 2 VMAs");
+
+    let text = render(&mut app);
+    assert!(text.contains("7f0000000000"), "vma address missing:\n{text}");
+    assert!(text.contains('▾'), "expanded marker missing:\n{text}");
+    assert!(text.contains("rw-p"), "vma perms missing:\n{text}");
+
+    // Collapsing restores the aggregated view.
+    app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(app.detail_len(), 2);
+
+    app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(!app.detail, "Esc leaves the detail view");
+}
+
+#[test]
+fn expand_all_and_collapse_all() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = App::new(None);
+    app.on_snapshot(snapshot());
+    app.detail = true;
+    app.on_key(KeyEvent::new(KeyCode::Char('Z'), KeyModifiers::NONE));
+    assert_eq!(app.detail_len(), 5, "2 groups + 3 VMAs");
+    app.on_key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE));
+    assert_eq!(app.detail_len(), 2);
 }

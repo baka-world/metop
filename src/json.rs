@@ -75,6 +75,9 @@ pub fn snapshot_json(snap: &Snapshot) -> String {
     let doc = json!({
         "schema": "mtop.snapshot.v1",
         "at_unix_ms": now_ms,
+        // The process that wrote this snapshot. A later --diff must ignore it:
+        // its pid is new every run, so it would show up as a phantom +3 MB.
+        "self_pid": std::process::id(),
         "mem": {
             "total_kb": snap.mem.total_kb,
             "avail_kb": snap.mem.avail_kb,
@@ -98,8 +101,14 @@ pub fn snapshot_json(snap: &Snapshot) -> String {
 }
 
 pub fn write_json(snap: &Snapshot) -> std::io::Result<()> {
+    write_str(&snapshot_json(snap))
+}
+
+pub fn write_str(text: &str) -> std::io::Result<()> {
     let mut out = std::io::stdout().lock();
-    out.write_all(snapshot_json(snap).as_bytes())?;
-    out.write_all(b"\n")?;
+    out.write_all(text.as_bytes())?;
+    if !text.ends_with('\n') {
+        out.write_all(b"\n")?;
+    }
     out.flush()
 }

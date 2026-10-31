@@ -94,6 +94,20 @@ pub fn read_rollup(pid: u32) -> Option<Rollup> {
     })
 }
 
+/// One virtual memory area, as listed under a group in the detail view.
+#[derive(Clone, Debug)]
+pub struct Vma {
+    pub start: u64,
+    pub end: u64,
+    /// "rwxp"-style: read/write/execute plus private or shared.
+    pub perms: String,
+    pub size_kb: u64,
+    pub pss_kb: u64,
+    pub uss_kb: u64,
+    pub anon_kb: u64,
+    pub swap_kb: u64,
+}
+
 #[derive(Clone, Debug)]
 pub struct VmaGroup {
     pub label: String,
@@ -103,6 +117,18 @@ pub struct VmaGroup {
     pub anon_kb: u64,
     pub swap_kb: u64,
     pub count: u32,
+    /// Individual areas, sorted by PSS descending (filled when expanded).
+    pub vmas: Vec<Vma>,
+}
+
+fn perms_string(perms: procfs::process::MMPermissions) -> String {
+    use procfs::process::MMPermissions as P;
+    let mut s = String::with_capacity(4);
+    s.push(if perms.contains(P::READ) { 'r' } else { '-' });
+    s.push(if perms.contains(P::WRITE) { 'w' } else { '-' });
+    s.push(if perms.contains(P::EXECUTE) { 'x' } else { '-' });
+    s.push(if perms.contains(P::SHARED) { 's' } else { 'p' });
+    s
 }
 
 #[derive(Default, Clone, Debug)]
@@ -165,14 +191,26 @@ pub fn read_smaps(pid: u32) -> Result<SmapsReport, procfs::ProcError> {
         let size_kb = bytes(map, "Size") / KB;
         let anon_kb = bytes(map, "Anonymous") / KB;
         let swap_kb = bytes(map, "Swap") / KB;
+        let vma = Vma {
+            start: m.address.0,
+            end: m.address.1,
+            perms: perms_string(m.perms),
+            size_kb,
+            pss_kb,
+            uss_kb,
+            anon_kb,
+            swap_kb,
+        };
         match idx.get(&key) {
             Some(&i) => {
-                groups[i].size_kb += size_kb;
-                groups[i].pss_kb += pss_kb;
-                groups[i].uss_kb += uss_kb;
-                groups[i].anon_kb += anon_kb;
-                groups[i].swap_kb += swap_kb;
-                groups[i].count += 1;
+                let g = &mut groups[i];
+                g.size_kb += size_kb;
+                g.pss_kb += pss_kb;
+                g.uss_kb += uss_kb;
+                g.anon_kb += anon_kb;
+                g.swap_kb += swap_kb;
+                g.count += 1;
+                g.vmas.push(vma);
             }
             None => {
                 idx.insert(key.clone(), groups.len());
@@ -184,12 +222,16 @@ pub fn read_smaps(pid: u32) -> Result<SmapsReport, procfs::ProcError> {
                     anon_kb,
                     swap_kb,
                     count: 1,
+                    vmas: vec![vma],
                 });
             }
         }
     }
 
     groups.sort_by_key(|g| std::cmp::Reverse(g.pss_kb));
+    for g in &mut groups {
+        g.vmas.sort_by_key(|v| std::cmp::Reverse(v.pss_kb));
+    }
     report.groups = groups;
     Ok(report)
 }
