@@ -1,7 +1,7 @@
 //! Render tests: the whole point of TestBackend is that a TUI frame becomes
 //! plain text, so layout changes can be asserted instead of eyeballed.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 use mtop::app::App;
@@ -24,6 +24,8 @@ fn snapshot() -> Snapshot {
             ProcRow { pid: 100, comm: "chrome".into(), rss_kb: 500_000, delta_kb: 4096 },
             ProcRow { pid: 200, comm: "node".into(), rss_kb: 200_000, delta_kb: -2048 },
             ProcRow { pid: 300, comm: "sleepy-daemon-that-has-a-very-long-name".into(), rss_kb: 100_000, delta_kb: 0 },
+            // pid 400 is unreadable (EACCES), not merely unsampled.
+            ProcRow { pid: 400, comm: "root-owned-daemon".into(), rss_kb: 50_000, delta_kb: 0 },
         ],
         pss,
         mem: MemInfo {
@@ -57,6 +59,7 @@ fn snapshot() -> Snapshot {
         pss_ms: 42.0,
         covered_pss_kb: 480_000,
         covered: 2,
+        denied: HashSet::from([400]),
         at: Instant::now(),
     }
 }
@@ -92,8 +95,11 @@ fn process_table_renders_sorted_with_pss_gaps_marked() {
     assert!(text.contains('…'), "long comm not truncated:\n{text}");
     // Missing PSS renders as a dash instead of a fake zero.
     assert!(text.contains('—'), "missing PSS not marked:\n{text}");
-    // Header reports coverage rather than pretending PSS is complete.
+    // Header reports coverage over readable processes only, and names the
+    // unreadable ones instead of letting them look like zero.
     assert!(text.contains("coverage 2/3"), "coverage line missing:\n{text}");
+    assert!(text.contains("1 n/a"), "denied count missing:\n{text}");
+    assert!(text.contains("n/a"), "denied rows not marked:\n{text}");
 }
 
 #[test]
@@ -102,7 +108,7 @@ fn sort_by_pss_reorders_without_pss_entries_at_the_bottom() {
     app.on_snapshot(snapshot());
     app.sort = SortKey::Pss;
     let order: Vec<u32> = app.visible().iter().map(|r| r.pid).collect();
-    assert_eq!(order, vec![100, 200, 300], "pss sort order wrong: {order:?}");
+    assert_eq!(order, vec![100, 200, 300, 400], "pss sort order wrong: {order:?}");
 }
 
 #[test]
@@ -147,13 +153,13 @@ fn keyboard_navigation_is_clamped() {
     for _ in 0..10 {
         app.on_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
     }
-    assert_eq!(app.sel, 2, "selection should clamp to the last row");
+    assert_eq!(app.sel, 3, "selection should clamp to the last row");
 
     app.on_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE));
     assert_eq!(app.sel, 0);
 
     app.on_key(KeyEvent::new(KeyCode::Char('G'), KeyModifiers::NONE));
-    assert_eq!(app.sel, 2);
+    assert_eq!(app.sel, 3);
 
     let before = app.sort;
     app.on_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
