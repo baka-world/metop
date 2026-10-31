@@ -626,3 +626,28 @@ fn apps_view_falls_back_to_a_list_when_narrow() {
     assert!(text.contains("APP"), "list fallback header missing:\n{text}");
     assert!(text.contains("PROCS"), "list fallback columns missing:\n{text}");
 }
+
+#[test]
+fn apps_history_tracks_each_metric_separately() {
+    use mtop::app::AppMetric;
+
+    let mut app = App::new(None);
+    let first = snapshot();
+    app.on_snapshot(first.clone());
+
+    let mut second = snapshot();
+    second.rows[0].rss_kb = 900_000; // chrome's main process grew
+    app.on_snapshot(second);
+
+    // RSS moved; PSS did not (the fixture's PssInfo is unchanged).
+    assert_eq!(
+        app.app_series("chrome", AppMetric::Rss),
+        vec![600_000, 1_000_000]
+    );
+    assert_eq!(
+        app.app_series("chrome", AppMetric::Pss),
+        vec![300_000, 300_000]
+    );
+    assert_eq!(app.app_series("chrome", AppMetric::Uss), vec![250_000, 250_000]);
+    assert!(app.app_series("nope", AppMetric::Pss).is_empty());
+}

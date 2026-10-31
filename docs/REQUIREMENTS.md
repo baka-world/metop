@@ -63,6 +63,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | F24 | `--json --fields a.b,c` 点号路径投影（数组按记录投影、null 段保留、`schema`/`at_unix_ms` 恒在、未知路径退出 2） | `tests/json.rs` + 4 个投影单测 |
 | F26 | apps 视图：面积 ∝ 应用内存，分组按 cgroup app scope → exe → comm，长尾折叠为 `others` | `apps.rs` 单测（scope 解析/合并/折叠）、`apps_view_groups_processes_and_drills_into_the_process_table` |
 | F27 | apps 视图选中并用 `Enter` 下钻到该应用的进程（`Esc` 清除过滤） | 同上 + `selected_row_is_tinted...` 同源的渲染测试 |
+| F29 | apps 视图右上角显示选中应用的历史（120 点），按指标分别存储；RSS 模式在标题标注"overcounts shared" | `apps_history_tracks_each_metric_separately`、实机 `▅▇▇█…` |
 | F28 | treemap 布局不变量：在界内、互不重叠、面积成比例 | `treemap_tiles_stay_inside_and_do_not_overlap`、`treemap_area_is_proportional_within_a_few_percent` |
 | F25 | OOM 时间序列：每个扫描点采样 `oom_recent`，120 点窗口，下钻页用文本 sparkline 呈现 | `text_spark_renders_a_normalised_series`、`cgroup_psi_history_is_recorded_and_plotted`、实机 `oom ▁▁▁▁ 0 total` |
 
@@ -148,7 +149,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 
 ## 10. 里程碑
 
-- **M1（当前）**：两层采样 + 进程表 + VMA 聚合详情 + 趋势 + 过滤/排序 + 68 个测试 + 实机验证。
+- **M1（当前）**：两层采样 + 进程表 + VMA 聚合详情 + 趋势 + 过滤/排序 + 69 个测试 + 实机验证。
 - **M1.1（已完成，见 commit）**：PSS 覆盖率策略——预算按"未知优先、其后最旧优先"分配；EACCES 负缓存 30 s；分母改为可读进程数；陈旧值加 `~` 后缀。
 - **M2（进行中）**：
   - 已完成：PSS 构成（anon/file/shmem/swap-pss/THP/KSM）；映射过滤；`--json` 快照（稳定排序、schema 版本、`_kb` 单位）。

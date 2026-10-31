@@ -213,7 +213,7 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
                     truncate(&g.name, 24),
                     fmt_kb(app.app_metric.value(g))
                 ),
-                Vec::new(),
+                app.app_series(&g.name, app.app_metric),
             ),
             None => (" apps".into(), Vec::new()),
         },
@@ -530,9 +530,17 @@ fn apps_view(f: &mut Frame, area: Rect, app: &mut App) {
         return;
     }
     let total: u64 = apps.iter().map(|g| app.app_metric.value(g)).sum();
+    // RSS adds shared pages once per process, so the map would inflate every
+    // multi-process app (2.7x on this machine). Say so instead of pretending.
+    let metric_hint = match app.app_metric {
+        crate::app::AppMetric::Pss => "",
+        crate::app::AppMetric::Uss => " (private only)",
+        crate::app::AppMetric::Rss => " (overcounts shared)",
+    };
     let title = format!(
-        " apps  metric {}  filter {}  ({} groups · {}) ",
+        " apps  metric {}{}  filter {}  ({} groups · {}) ",
         app.app_metric.label(),
+        metric_hint,
         if app.filter.is_empty() { "-" } else { app.filter.as_str() },
         apps.len(),
         fmt_kb(total)
