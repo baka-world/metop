@@ -41,7 +41,7 @@ sudo ./target/release/mtop
 | 观察点 | 非 root | root 期望 |
 |---|---|---|
 | 表头 `n/a (needs root)` | 59 | **0**（提示消失） |
-| `covered` / 分母 | 203/262 | **≈262/262** |
+| `covered` / 分母 | 203/262 | **265/265**（进程数会波动） |
 | `no_mm` 行（内核线程） | 显示 `n/a` | 仍是 `n/a`，但不再有 sudo 提示 |
 | 进程详情（对 root 进程按 `Enter`） | "vm mappings unavailable … PermissionDenied" | 正常显示 VMA |
 
@@ -50,20 +50,27 @@ sudo ./target/release/mtop
 ## 3. 自检脚本（断言不靠眼睛）
 
 ```sh
-sudo ./target/release/mtop --json > /tmp/mtop-root.json
-python3 - <<'PY'
-import json
-d = json.load(open('/tmp/mtop-root.json'))
-s, procs = d['sampling'], d['procs']
-with_pss = [p for p in procs if p['pss']]
-bad = [p for p in with_pss if p['pss']['pss_kb'] > p['pss']['rss_kb'] + 1]
-print(f"procs={s['procs']} covered={s['covered']} denied={s['denied']} no_mm={s['no_mm']}")
-print(f"pss<=rss violations: {len(bad)}")
-assert s['denied'] == 0, "root 下仍有 PermissionDenied：见第 4 节排查"
-assert not bad, "PSS 大于 RSS，说明口径错了"
-assert s['covered'] + s['no_mm'] >= s['procs'] - 5, "覆盖不完整"
-print("OK")
-PY
+sudo scripts/verify-root.sh
+```
+
+脚本自己取 `--json`（只投影需要的字段），打印计数并断言：
+
+```
+procs=445 covered=265 denied=0 no_mm=180
+pss total=6.28 GiB  pss<=rss violations=0
+OK
+```
+
+- `denied` 必须为 0：否则仍有进程返回 EACCES，按第 4 节排查。
+- `violations` 必须为 0：PSS 是 RSS 按共享度折减后的值，不可能大于 RSS。
+- `covered + no_mm + denied` 应等于 `procs`（允许少量进程在采样期间来去）。
+
+非 root 跑同一脚本会明确失败，可用来确认断言确实生效：
+
+```
+procs=442 covered=203 denied=59 no_mm=180
+FAIL: 59 processes still return EACCES; see docs/VERIFY-ROOT.md section 4
+FAILED
 ```
 
 ## 4. 如果 root 下仍有 `denied`
@@ -81,3 +88,13 @@ PY
 ```sh
 sudo rm -f /tmp/mtop-root.json
 ```
+
+本机 root 实测（2026-10-31）：
+
+```
+procs=445 covered=265 denied=0 no_mm=180
+coverage 265/265   （表头无 n/a (needs root) 提示）
+4551 dnf5daemon-serv  347M  330M  328M  95%   ← 非 root 时为 n/a
+```
+
+用户自报进程（chrome 339M / omp 351M）的 PSS 与非 root 时一致，说明 root 只是打开了权限，没有改变统计口径。
