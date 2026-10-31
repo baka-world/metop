@@ -48,8 +48,9 @@ mtop diff  over 4s  (437 -> 438 procs)   15 grew, 3 shrank, 1 new, 0 gone
 |---|---|
 | `j`/`k`、`↑`/`↓`、`PgUp`/`PgDn` | 移动 |
 | `g`/`G` | 顶 / 底 |
-| `s` / `r` | 切换排序键 / 反向 |
-| `f` | 过滤（进程名子串或 PID 前缀）；详情页中过滤映射名 |
+| `s` / `r` | 切换排序键 / 反向（cgroup 视图按 CURRENT/ANON/FILE/SLAB 排序） |
+| `Tab` | 进程视图 ⇄ cgroup 视图 |
+| `f` | 过滤（进程名 / PID / cgroup 路径；详情页中过滤映射名） |
 | `Enter` | 进入详情；在详情内展开/收起当前映射（逐 VMA） |
 | `z` / `Z`（详情） | 全部收起 / 全部展开 |
 | `Esc` | 清除过滤 / 返回 |
@@ -66,6 +67,23 @@ mtop diff  over 4s  (437 -> 438 procs)   15 grew, 3 shrank, 1 new, 0 gone
 | `/proc/PID/smaps` | 31–65 ms（2000+ VMA） | 仅焦点进程，2 s 一次 |
 
 `/proc` 解析全部交给 [`procfs`](https://crates.io/crates/procfs) 0.18，UI 用 [`ratatui`](https://crates.io/crates/ratatui) 0.30（版本锁定）。复用了什么、为什么没有 fork `bottom`、以及精度与风险，见 [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md)。
+
+## cgroup 视图（`Tab`）
+
+进程表回答"哪个进程大"，但容器/服务的边界是 cgroup。`Tab` 切到 cgroup v2 视图，直接读 `/sys/fs/cgroup` 的 `memory.current` / `memory.stat` / `memory.max` / `memory.events`：
+
+```
+ cgroups  sort CUR ↓  filter -  (174 of 174)
+ CGROUP                           CURRENT      ANON      FILE    KERNEL     SLAB      MAX  OOM
+ /user.slice                        9.50G     4.36G     4.72G      417M     255M      max    0
+ /user.slice/user-1000.slice        9.33G     4.36G     4.56G      404M     242M      max    0
+ /system.slice                       999M      446M      514M       37M      22M      max    0
+```
+
+- 数值是**层级累计**的：父 cgroup 已包含子 cgroup，所以列表按 `current` 排序而不是跨层相加。
+- 校验恒等式：`current ≈ anon + file + kernel`（`slab` 属于 `kernel`，`shmem` 属于 `file`）。
+- `MAX` 显示 `max` 表示无限制；条按 `current/limit` 画，无限制时按最大 cgroup 归一。
+- 仅支持 cgroup v2（需要 `memory.current`）；v1 或未启用 memory controller 时视图会说明原因。
 
 ## 详情页看什么
 
@@ -90,3 +108,4 @@ cargo test --release
 - `tests/procfs.rs`：对真实 `/proc` 的不变量（PSS ≤ RSS、分组求和、meminfo 单位、statm 与 rollup 一致性）
 - `tests/render.rs`：`TestBackend` 把 TUI 渲染成纯文本后断言列、排序、截断、`—`、覆盖率、详情聚合、展开、按键边界
 - `tests/json.rs` / `tests/diff.rs`：通过真实二进制校验快照与 diff 的对外契约
+- `src/cgroup.rs` 内联单测：`memory.stat`/`memory.max`/`memory.events` 解析（含 `max` 字面量与垃圾行）

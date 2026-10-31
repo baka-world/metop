@@ -26,6 +26,7 @@ struct State {
     denied: HashMap<u32, Instant>,
     ticks: u32,
     mem: procfs::MemInfo,
+    cgroups: Vec<crate::cgroup::CgroupMem>,
 }
 
 impl State {
@@ -40,6 +41,7 @@ impl State {
             denied: HashMap::new(),
             ticks: 0,
             mem: procfs::read_meminfo(),
+            cgroups: crate::cgroup::scan(std::path::Path::new(crate::cgroup::ROOT)),
         }
     }
 }
@@ -238,6 +240,7 @@ fn tick(st: &mut State, pss_budget: Duration) -> Snapshot {
     st.ticks = st.ticks.wrapping_add(1);
     if st.ticks.is_multiple_of(MEMINFO_EVERY) {
         st.mem = procfs::read_meminfo();
+        st.cgroups = crate::cgroup::scan(std::path::Path::new(crate::cgroup::ROOT));
     }
 
     let fresh: Vec<&PssInfo> = st.pss.values().filter(|p| p.at.elapsed() < PSS_MAX_AGE).collect();
@@ -248,6 +251,7 @@ fn tick(st: &mut State, pss_budget: Duration) -> Snapshot {
         rows,
         pss: st.pss.clone(),
         mem: st.mem.clone(),
+        cgroups: st.cgroups.clone(),
         detail,
         detail_error: if st.want_detail { st.detail_error.clone() } else { None },
         sweep_ms,

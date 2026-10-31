@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 use mtop::app::App;
+use mtop::cgroup::CgroupMem;
 use mtop::model::{Detail, PssInfo, ProcRow, Snapshot, SortKey};
 use mtop::procfs::{MemInfo, Rollup, SmapsReport, Vma, VmaGroup};
 use ratatui::backend::TestBackend;
@@ -102,6 +103,30 @@ fn snapshot() -> Snapshot {
         }),
         sweep_ms: 18.0,
         pss_ms: 42.0,
+        cgroups: vec![
+            CgroupMem {
+                path: "/user.slice/user-1000.slice/session-2.scope".into(),
+                current_kb: 2_000_000,
+                anon_kb: 1_200_000,
+                file_kb: 700_000,
+                kernel_kb: 90_000,
+                slab_kb: 60_000,
+                shmem_kb: 4_000,
+                limit_kb: Some(4_194_304),
+                oom_kills: 0,
+            },
+            CgroupMem {
+                path: "/system.slice".into(),
+                current_kb: 500_000,
+                anon_kb: 100_000,
+                file_kb: 300_000,
+                kernel_kb: 80_000,
+                slab_kb: 20_000,
+                shmem_kb: 0,
+                limit_kb: None,
+                oom_kills: 2,
+            },
+        ],
         covered_pss_kb: 480_000,
         covered: 2,
         denied: HashSet::from([400]),
@@ -328,4 +353,45 @@ fn expand_all_and_collapse_all() {
     assert_eq!(app.detail_len(), 5, "2 groups + 3 VMAs");
     app.on_key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE));
     assert_eq!(app.detail_len(), 2);
+}
+
+#[test]
+fn tab_switches_to_the_cgroup_view() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = App::new(None);
+    app.on_snapshot(snapshot());
+
+    let procs = render(&mut app);
+    assert!(procs.contains("PSS MIX"), "process view expected first");
+
+    app.on_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    let text = render(&mut app);
+    assert!(text.contains("CGROUP"), "cgroup header missing:\n{text}");
+    assert!(text.contains("session-2.scope"), "cgroup path missing:\n{text}");
+    assert!(text.contains("CURRENT"), "cgroup columns missing:\n{text}");
+    assert!(!text.contains("PSS MIX"), "process columns leaked into cgroup view");
+    // Biggest first, and an OOM count is shown for the unlucky slice.
+    assert!(
+        text.find("session-2.scope").unwrap() < text.find("/system.slice").unwrap(),
+        "cgroups not sorted by current:\n{text}"
+    );
+    assert!(text.contains("   2"), "oom_kills not rendered:\n{text}");
+    assert!(text.contains("max"), "unlimited limit not marked:\n{text}");
+}
+
+#[test]
+fn cgroup_view_sorts_and_filters() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = App::new(None);
+    app.on_snapshot(snapshot());
+    app.on_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+
+    // /system.slice has less anon but more file than the user slice? both less.
+    app.cgroup_sort = mtop::app::CgroupSort::File;
+    let order: Vec<&str> = app.visible_cgroups().iter().map(|c| c.path.as_str()).collect();
+    assert_eq!(order, vec!["/user.slice/user-1000.slice/session-2.scope", "/system.slice"]);
+
+    app.filter = "system".into();
+    assert_eq!(app.visible_cgroups().len(), 1);
+    assert!(render(&mut app).contains("/system.slice"));
 }
