@@ -43,9 +43,11 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | F4 | 过滤：按进程名子串或 PID 前缀 | `filter_matches_comm_and_pid` |
 | F5 | 详情：按映射名聚合 PSS/USS/虚拟大小/VMA 数 | `detail_view_shows_grouped_vmas` + 实机端到端（2292 VMAs → 286 组） |
 | F6 | 焦点进程 RSS 趋势 sparkline（120 点） | 实机截图；数据源为 UI 侧环形缓冲 |
-| F7 | 诚实表头：内存用量取自 `/proc/meminfo`；另显示 sweep/pss 耗时、PSS 覆盖率、样本年龄 | 实机帧：`coverage 77/466 = 6.61G` |
+| F7 | 诚实表头：内存用量取自 `/proc/meminfo`；另显示 sweep/pss 耗时、PSS 覆盖率、样本年龄 | 实机帧：`coverage 213/218 = 6.03G 234 n/a` |
 | F8 | 权限失败时显示原因，不显示空面板 | `detail_error` → "vm mappings unavailable / /proc/N/smaps: …" |
 | F9 | `--pid PID` 启动即选中 | 实机：`--pid 579585` → 首行 ▸ chrome |
+| F10 | 不可读进程（EACCES/ESRCH）标 `n/a`，且不占用采样预算；30 s 后重试 | `denied_pids_do_not_consume_the_budget_until_the_denial_expires` |
+| F11 | 按 PSS/USS/比值排序时，覆盖率未满则标题标注 `ranking incomplete` | `render` 断言 + 实机帧 |
 
 ## 5. 数据来源与精度
 
@@ -58,6 +60,8 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | 系统内存 | `/proc/meminfo` | `MemTotal - MemAvailable` | **绝不用进程行求和**：PSS 只覆盖一部分进程 |
 | VMA 分组 | `/proc/PID/smaps` | 按 `MMapPath` 聚合 | `Size` 是虚拟大小，含未提交的稀疏映射（见过 100 G 的 `[anon]`） |
 
+**PSS 覆盖率的语义**：`smaps_rollup` 需要 ptrace 读权限。普通用户实测 **216/452 可读**（其余是本用户之外与内核线程），因此表头的分母是"可读进程数"，其余显示 `n/a` 并提示 `sudo for full`。覆盖率的分母**不是**进程总数——否则永远到不了 100%，会诱导用户误判"采样卡住了"。
+
 `procfs::Meminfo` 的单位是**字节**，UI 用 kB——这条转换有专门的回归测试（`meminfo_is_normalized_to_kb`），因为漏掉 `/1024` 的后果是表头显示 15.7 TB。
 
 ## 6. 性能预算（本机实测：8 核 / 15 GiB / 465 个 PID）
@@ -69,7 +73,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | `smaps` 全量（2292 VMA） | 31–42 ms 裸解析，65 ms 经 `procfs` | 焦点进程，2 s 一次 | 33 ms 摊销 |
 | `/proc/meminfo` | <1 ms | 5 s 一次 | ~0 |
 
-稳态开销约 **200–250 ms/s ≈ 一个核的 20–25%**（最坏情况）。这不是"性能优化没做"，而是"读页表本身就是被测系统的负载"——所以 `smaps_rollup` 必须受预算约束，`smaps` 必须按需。预算常量在 `src/sampler.rs`：`PSS_BUDGET`、`PSS_MAX_AGE`、`DETAIL_MAX_AGE`。
+稳态开销约 **200–250 ms/s ≈ 一个核的 20–25%**（最坏情况）。实测：修掉"每 tick 重试不可读进程"之前，覆盖率卡在 `213/447`；修复后 12 s 内收敛到 `213/218`（可读进程全覆盖），且实测排序结果与独立 Python 实现逐行一致。这不是"性能优化没做"，而是"读页表本身就是被测系统的负载"——所以 `smaps_rollup` 必须受预算约束，`smaps` 必须按需。预算常量在 `src/sampler.rs`：`PSS_BUDGET`、`PSS_MAX_AGE`、`DETAIL_MAX_AGE`。
 
 ## 7. 交互契约
 
@@ -91,11 +95,13 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 2. **测量即扰动**：读 `smaps` 会拿 `mmap_lock` 走页表，对大进程有明显内核开销；因此详情页不随 tick 刷新。
 3. **权限**：非本用户进程的 `smaps` 可能 `EACCES`，详情页会显示原因。
 4. **PID 复用**：扫描期间进程退出/复用 PID，某一行可能短暂混合两个进程的数据。
+4b. **读不到 ≠ 不占内存**：`n/a` 的进程（多为 root 进程）仍有 RSS，只是拿不到 PSS。要全量 PSS 就用 `sudo` 运行；这条限制来自内核的 ptrace 权限模型，不是实现缺陷。
 5. **内核线程**：`smaps_rollup` 为空，PSS 显示 `—`，不是 0。
 6. **ratatui 0.30 拆包后的 API 漂移**：`Cargo.toml` 用 `=0.30.2` 锁定，升级需单独评估。
 
 ## 9. 里程碑
 
-- **M1（当前）**：两层采样 + 进程表 + VMA 聚合详情 + 趋势 + 过滤/排序 + 12 个测试 + 实机验证。
-- **M2**：按 PSS 排序的覆盖率策略；VMA 行可选/可过滤；KSM、hugepage、swap-pss 列（走 `wora-observability-linux-mm`）；快照导出 JSON 以便 diff。
+- **M1（当前）**：两层采样 + 进程表 + VMA 聚合详情 + 趋势 + 过滤/排序 + 17 个测试 + 实机验证。
+- **M1.1（已完成，见 commit）**：PSS 覆盖率策略——预算按"未知优先、其后最旧优先"分配；EACCES 负缓存 30 s；分母改为可读进程数；陈旧值加 `~` 后缀。
+- **M2**：VMA 行可选/可过滤；KSM、hugepage、swap-pss 列（走 `wora-observability-linux-mm`）；快照导出 JSON 以便 diff。
 - **M3**：`--json` 脚本模式；cgroup/容器聚合；两次快照对比视图。

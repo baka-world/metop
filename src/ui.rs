@@ -89,7 +89,9 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
             fmt_kb(snap.mem.swap_total_kb)
         )),
     ]);
-    let line2 = Line::from(vec![
+    let denied = snap.denied.len();
+    let eligible = snap.rows.len().saturating_sub(denied);
+    let mut line2 = vec![
         Span::styled(
             format!(" sweep {:.0}ms ", snap.sweep_ms),
             Style::new().fg(Color::DarkGray),
@@ -102,16 +104,23 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
             format!(
                 "coverage {}/{} = {} ",
                 snap.covered,
-                snap.rows.len(),
+                eligible,
                 fmt_kb(snap.covered_pss_kb)
             ),
             Style::new().fg(Color::DarkGray),
         ),
-        Span::styled(
-            format!("age {}ms", app.sample_age_ms()),
-            Style::new().fg(Color::DarkGray),
-        ),
-    ]);
+    ];
+    if denied > 0 {
+        line2.push(Span::styled(
+            format!("{denied} n/a (sudo for full) "),
+            Style::new().fg(Color::Yellow),
+        ));
+    }
+    line2.push(Span::styled(
+        format!("age {}ms", app.sample_age_ms()),
+        Style::new().fg(Color::DarkGray),
+    ));
+    let line2 = Line::from(line2);
     f.render_widget(
         Paragraph::new(vec![line1, line2]).block(Block::new().borders(Borders::TOP | Borders::BOTTOM)),
         cols[0],
@@ -189,6 +198,7 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
             // Older than the freshness window: last known value, suffixed with
             // '~' so a stale number can never be mistaken for a live one.
             let stale = pss.is_some_and(|p| p.at.elapsed() > PSS_MAX_AGE);
+            let denied = snap.denied.contains(&r.pid);
             let ratio = pss.filter(|_| r.rss_kb > 0).map(|p| p.rollup.pss_kb as f64 / r.rss_kb as f64);
             let ratio_text = match ratio {
                 Some(v) => format!("{:>6.0}%", v * 100.0),
@@ -219,6 +229,9 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
                         Style::new().fg(Color::DarkGray),
                     )),
                     Some(v) => Text::from(format!("{:>9}", fmt_kb(v))),
+                    None if denied => {
+                        Text::from(Span::styled("      n/a", Style::new().fg(Color::DarkGray)))
+                    }
                     None => Text::from(Span::styled("        —", Style::new().fg(Color::DarkGray))),
                 }),
                 Cell::from(match uss_kb {
@@ -227,6 +240,9 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
                         Style::new().fg(Color::DarkGray),
                     )),
                     Some(v) => Text::from(format!("{:>9}", fmt_kb(v))),
+                    None if denied => {
+                        Text::from(Span::styled("      n/a", Style::new().fg(Color::DarkGray)))
+                    }
                     None => Text::from(Span::styled("        —", Style::new().fg(Color::DarkGray))),
                 }),
                 Cell::from(Text::from(Span::styled(ratio_text, Style::new().fg(ratio_color)))),
@@ -251,7 +267,7 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
     // A PSS/USS ranking is only meaningful once the rollup cache has been
     // filled; say so instead of silently ranking unsampled rows as zero.
     let rank_incomplete = matches!(app.sort, SortKey::Pss | SortKey::Uss | SortKey::Ratio)
-        && snap.covered < snap.rows.len();
+        && snap.covered + snap.denied.len() < snap.rows.len();
     let mut sort_label = format!(
         " procs  sort {} {}  filter {} ",
         app.sort.label(),
@@ -262,7 +278,7 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
         sort_label.push_str(&format!(
             " pss {}/{} · ranking incomplete ",
             snap.covered,
-            snap.rows.len()
+            snap.rows.len().saturating_sub(snap.denied.len())
         ));
     }
     let table = Table::new(

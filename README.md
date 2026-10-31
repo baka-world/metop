@@ -46,6 +46,12 @@ cargo build --release
 
 `/proc` 解析全部交给 [`procfs`](https://crates.io/crates/procfs) 0.18，UI 用 [`ratatui`](https://crates.io/crates/ratatui) 0.30（版本锁定）。复用了什么、为什么没有 fork `bottom`、以及精度与风险，见 [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md)。
 
+## 已知限制
+
+- **PSS 需要权限**：`/proc/PID/smaps_rollup` 走 ptrace 读权限检查。普通用户只能读到自己（及同凭据 / dumpable）的进程——实测 216/218 之外还有 234 个进程不可读，表头显示 `n/a` 并提示 `sudo for full`。`sudo ./target/release/mtop` 可得全量。
+- **读不到不代表不占内存**：`n/a` 的行仍有 RSS，只是没有 PSS。
+- 内核线程的 `smaps_rollup` 为空，恒为 `n/a`。
+
 ## 测试
 
 ```sh

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use crate::procfs::{MemInfo, SmapsReport};
@@ -83,6 +83,8 @@ pub struct Snapshot {
     /// Sum of PSS for entries younger than PSS_MAX_AGE, and how many that is.
     pub covered_pss_kb: u64,
     pub covered: usize,
+    /// Pids whose smaps_rollup is unreadable right now (EACCES/ESRCH).
+    pub denied: HashSet<u32>,
     pub at: Instant,
 }
 
@@ -93,6 +95,11 @@ pub enum Focus {
 
 /// A cached rollup younger than this is shown as authoritative (dimmed past it).
 pub const PSS_MAX_AGE: Duration = Duration::from_millis(6000);
+/// /proc/PID/smaps_rollup requires ptrace-read permission: other users'
+/// processes (and kernel threads) answer EACCES/ESRCH. Do not retry them every
+/// tick — measured, 234 of 450 pids are unreadable as a normal user, and
+/// retrying them consumed half the per-tick budget and starved readable pids.
+pub const PSS_DENIED_TTL: Duration = Duration::from_secs(30);
 /// Never re-walk a process's page table more often than this, unless focused.
 /// With ~465 pids a full set costs ~700 ms, so the 150 ms/tick budget refreshes
 /// everything about every 5 s — stale numbers, not missing ones.

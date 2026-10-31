@@ -4,7 +4,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::model::{
-    Detail, Focus, PssInfo, ProcRow, Snapshot, PSS_MAX_AGE, PSS_REFRESH_AFTER,
+    Detail, Focus, PssInfo, ProcRow, Snapshot, PSS_DENIED_TTL, PSS_MAX_AGE, PSS_REFRESH_AFTER,
 };
 use crate::procfs;
 
@@ -23,6 +23,7 @@ struct State {
     prev_rss: HashMap<u32, u64>,
     detail: Option<Detail>,
     detail_error: Option<String>,
+    denied: HashMap<u32, Instant>,
     ticks: u32,
     mem: procfs::MemInfo,
 }
@@ -42,6 +43,7 @@ fn run(rx: Receiver<Focus>, tx: Sender<Snapshot>) {
         prev_rss: HashMap::new(),
         detail: None,
         detail_error: None,
+        denied: HashMap::new(),
         ticks: 0,
         mem: procfs::read_meminfo(),
     };
@@ -87,22 +89,29 @@ pub fn pss_targets(
     focus: Option<u32>,
     rows: &[ProcRow],
     pss: &HashMap<u32, PssInfo>,
+    denied: &HashMap<u32, Instant>,
     refresh_after: Duration,
+    denied_ttl: Duration,
 ) -> Vec<u32> {
+    // Denied pids keep their place in the row list but must not consume the
+    // budget again until the denial expires.
+    let allowed = |pid: u32| !denied.get(&pid).is_some_and(|at| at.elapsed() < denied_ttl);
     let mut order: Vec<u32> = Vec::with_capacity(rows.len() + 1);
-    if let Some(pid) = focus {
+    if let Some(pid) = focus
+        && allowed(pid)
+    {
         order.push(pid);
     }
     order.extend(
         rows.iter()
-            .filter(|r| !pss.contains_key(&r.pid))
+            .filter(|r| !pss.contains_key(&r.pid) && allowed(r.pid))
             .map(|r| r.pid),
     );
     let mut stale: Vec<(Instant, u32)> = rows
         .iter()
         .filter_map(|r| {
             let info = pss.get(&r.pid)?;
-            (info.at.elapsed() > refresh_after).then_some((info.at, r.pid))
+            (info.at.elapsed() > refresh_after && allowed(r.pid)).then_some((info.at, r.pid))
         })
         .collect();
     stale.sort_by_key(|(at, _)| *at);
@@ -135,18 +144,33 @@ fn tick(st: &mut State) -> Snapshot {
 
     // --- Tier 2: exact PSS/USS, budgeted -------------------------------------
     let t_pss = Instant::now();
-    for pid in pss_targets(st.focus, &rows, &st.pss, PSS_REFRESH_AFTER) {
+    for pid in pss_targets(
+        st.focus,
+        &rows,
+        &st.pss,
+        &st.denied,
+        PSS_REFRESH_AFTER,
+        PSS_DENIED_TTL,
+    ) {
         if t_pss.elapsed() > PSS_BUDGET && Some(pid) != st.focus {
             break;
         }
-        if let Some(rollup) = procfs::read_rollup(pid) {
-            st.pss.insert(pid, PssInfo { rollup, at: Instant::now() });
-        } else {
-            st.pss.remove(&pid);
+        match procfs::read_rollup(pid) {
+            Some(rollup) => {
+                st.pss.insert(pid, PssInfo { rollup, at: Instant::now() });
+                st.denied.remove(&pid);
+            }
+            None => {
+                st.pss.remove(&pid);
+                st.denied.insert(pid, Instant::now());
+            }
         }
     }
     // Forget dead pids so coverage numbers stay honest.
-    st.pss.retain(|pid, _| rows.iter().any(|r| r.pid == *pid));
+    let alive: std::collections::HashSet<u32> = rows.iter().map(|r| r.pid).collect();
+    st.pss.retain(|pid, _| alive.contains(pid));
+    st.denied
+        .retain(|pid, at| alive.contains(pid) && at.elapsed() < PSS_DENIED_TTL);
     let pss_ms = t_pss.elapsed().as_secs_f32() * 1000.0;
 
     // --- Detail: full smaps for the focused pid, only when asked -------------
@@ -206,6 +230,7 @@ fn tick(st: &mut State) -> Snapshot {
         pss_ms,
         covered_pss_kb,
         covered,
+        denied: st.denied.keys().copied().collect(),
         at: Instant::now(),
     }
 }
@@ -228,7 +253,14 @@ mod tests {
     fn focus_is_always_first_even_when_fresh() {
         let rows = [row(2, 100), row(1, 300)];
         let pss = HashMap::from([(2, cached(Duration::ZERO))]);
-        let got = pss_targets(Some(2), &rows, &pss, Duration::from_secs(2));
+        let got = pss_targets(
+            Some(2),
+            &rows,
+            &pss,
+            &HashMap::new(),
+            Duration::from_secs(2),
+            Duration::from_secs(30),
+        );
         assert_eq!(got[0], 2, "focus must be sampled first: {got:?}");
         assert!(got.contains(&1), "unsampled pid must be queued: {got:?}");
     }
@@ -238,7 +270,14 @@ mod tests {
         // rows arrive sorted by rss desc; the biggest unknown is the row a PSS
         // sort would misrank, so it must be resolved first.
         let rows = [row(10, 500), row(11, 400), row(12, 300)];
-        let got = pss_targets(None, &rows, &HashMap::new(), Duration::from_secs(2));
+        let got = pss_targets(
+            None,
+            &rows,
+            &HashMap::new(),
+            &HashMap::new(),
+            Duration::from_secs(2),
+            Duration::from_secs(30),
+        );
         assert_eq!(got, vec![10, 11, 12]);
     }
 
@@ -250,12 +289,49 @@ mod tests {
             (2, cached(Duration::from_secs(3))),
             (3, cached(Duration::from_secs(1))),
         ]);
-        let got = pss_targets(None, &rows, &pss, Duration::from_secs(2));
+        let got = pss_targets(
+            None,
+            &rows,
+            &pss,
+            &HashMap::new(),
+            Duration::from_secs(2),
+            Duration::from_secs(30),
+        );
         assert_eq!(got, vec![1, 2], "oldest first, fresh pid 3 untouched: {got:?}");
     }
 
     #[test]
     fn empty_system_yields_no_targets() {
-        assert!(pss_targets(None, &[], &HashMap::new(), Duration::from_secs(2)).is_empty());
+        assert!(
+            pss_targets(
+                None,
+                &[],
+                &HashMap::new(),
+                &HashMap::new(),
+                Duration::from_secs(2),
+                Duration::from_secs(30)
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn denied_pids_do_not_consume_the_budget_until_the_denial_expires() {
+        // 234 of ~450 pids are EACCES as a normal user; retrying them every
+        // tick is what starved the readable ones.
+        let rows = [row(1, 500), row(2, 400), row(3, 300)];
+        let denied = HashMap::from([
+            (1, Instant::now()),
+            (3, Instant::now() - Duration::from_secs(31)),
+        ]);
+        let got = pss_targets(
+            Some(1),
+            &rows,
+            &HashMap::new(),
+            &denied,
+            Duration::from_secs(2),
+            Duration::from_secs(30),
+        );
+        assert_eq!(got, vec![2, 3], "fresh denials skipped, expired retried: {got:?}");
     }
 }
