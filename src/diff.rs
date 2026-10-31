@@ -15,6 +15,31 @@ struct Entry {
     pss_kb: Option<u64>,
 }
 
+/// `--diff` knobs.
+pub struct Opts {
+    /// Hide rows whose |ΔRSS| is smaller than this (kB).
+    pub min_delta_kb: u64,
+    pub top: usize,
+}
+
+impl Default for Opts {
+    fn default() -> Self {
+        Opts { min_delta_kb: 0, top: 30 }
+    }
+}
+
+/// Parse "50M" / "512k" / "2G" / "4096" (bare numbers are kB).
+pub fn parse_size(text: &str) -> Option<u64> {
+    let t = text.trim();
+    let (num, mult) = match t.chars().last()? {
+        'k' | 'K' => (&t[..t.len() - 1], 1u64),
+        'm' | 'M' => (&t[..t.len() - 1], 1024),
+        'g' | 'G' => (&t[..t.len() - 1], 1024 * 1024),
+        _ => (t, 1),
+    };
+    num.parse::<u64>().ok().map(|n| n.saturating_mul(mult))
+}
+
 /// One parsed `--json` snapshot.
 struct Doc {
     at_ms: u64,
@@ -77,7 +102,7 @@ struct Row {
     note: &'static str,
 }
 
-pub fn render(a_text: &str, b_text: &str, top: usize) -> Result<String, String> {
+pub fn render(a_text: &str, b_text: &str, opts: &Opts) -> Result<String, String> {
     let a = parse(a_text, "A")?;
     let b = parse(b_text, "B")?;
     let (a_at, a_self) = (a.at_ms, a.self_pid);
@@ -144,16 +169,21 @@ pub fn render(a_text: &str, b_text: &str, top: usize) -> Result<String, String> 
         }
     }
 
+    rows.retain(|r| r.drss.unsigned_abs() >= opts.min_delta_kb);
     rows.sort_by_key(|r| (std::cmp::Reverse(r.drss.unsigned_abs()), r.pid));
-    rows.truncate(top);
+    rows.truncate(opts.top);
 
     let span = b_at.saturating_sub(a_at) / 1000;
     let mut out = String::new();
     out.push_str(&format!(
-        "mtop diff  over {span}s  ({} -> {} procs)   {grew} grew, {shrank} shrank, {new} new, {gone} gone\n",
+        "mtop diff  over {span}s  ({} -> {} procs)   {grew} grew, {shrank} shrank, {new} new, {gone} gone",
         a.procs.len(),
         b.procs.len()
     ));
+    if opts.min_delta_kb > 0 {
+        out.push_str(&format!("   min |ΔRSS| {}", fmt_kb(opts.min_delta_kb)));
+    }
+    out.push('\n');
     out.push_str(&format!(
         "{:>8} {:<24} {:>9} {:>9} {:>9} {:>9}  {}\n",
         "PID", "COMM", "ΔRSS", "ΔPSS", "RSS now", "PSS now", "note"
@@ -171,7 +201,14 @@ pub fn render(a_text: &str, b_text: &str, top: usize) -> Result<String, String> 
         ));
     }
     if rows.is_empty() {
-        out.push_str("(no processes changed by more than the sort threshold)\n");
+        if opts.min_delta_kb > 0 {
+            out.push_str(&format!(
+                "(no rows above min |ΔRSS| {})\n",
+                fmt_kb(opts.min_delta_kb)
+            ));
+        } else {
+            out.push_str("(no process changes)\n");
+        }
     }
     Ok(out)
 }
@@ -181,5 +218,21 @@ fn truncate(s: &str, n: usize) -> String {
         s.to_string()
     } else {
         s.chars().take(n.saturating_sub(1)).collect::<String>() + "…"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_size;
+
+    #[test]
+    fn sizes_accept_suffixes_and_bare_kb() {
+        assert_eq!(parse_size("50M"), Some(51_200));
+        assert_eq!(parse_size("512k"), Some(512));
+        assert_eq!(parse_size("2G"), Some(2_097_152));
+        assert_eq!(parse_size("4096"), Some(4_096));
+        assert_eq!(parse_size(" 8m "), Some(8_192));
+        assert_eq!(parse_size("garbage"), None);
+        assert_eq!(parse_size("M"), None);
     }
 }

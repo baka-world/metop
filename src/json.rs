@@ -103,6 +103,7 @@ pub fn snapshot_json(snap: &Snapshot) -> String {
             "shmem_kb": c.shmem_kb,
             "limit_kb": c.limit_kb,
             "oom_kills": c.oom_kills,
+            "oom_recent": c.oom_recent,
         })).collect::<Vec<_>>(),
         "detail_error": snap.detail_error,
         "detail": detail,

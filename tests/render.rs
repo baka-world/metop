@@ -121,6 +121,7 @@ fn snapshot() -> Snapshot {
                 shmem_kb: 4_000,
                 limit_kb: Some(4_194_304),
                 oom_kills: 0,
+                oom_recent: 0,
             },
             CgroupMem {
                 path: "/system.slice".into(),
@@ -132,6 +133,7 @@ fn snapshot() -> Snapshot {
                 shmem_kb: 0,
                 limit_kb: None,
                 oom_kills: 2,
+                oom_recent: 1,
             },
         ],
         covered_pss_kb: 480_000,
@@ -382,7 +384,11 @@ fn tab_switches_to_the_cgroup_view() {
         text.find("session-2.scope").unwrap() < text.find("/system.slice").unwrap(),
         "cgroups not sorted by current:\n{text}"
     );
-    assert!(text.contains("   2"), "oom_kills not rendered:\n{text}");
+    assert!(text.contains("2▲"), "recent oom marker missing:\n{text}");
+    assert!(
+        text.contains("oom +1 since last sample"),
+        "oom delta missing from the title:\n{text}"
+    );
     assert!(text.contains("max"), "unlimited limit not marked:\n{text}");
 }
 

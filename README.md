@@ -26,6 +26,7 @@ cargo build --release
 ./target/release/mtop --json     # 一次性快照（可 diff、可 jq）
 ./target/release/mtop --json --pid 1234   # 附带该进程的 VMA 明细
 mtop --diff a.json b.json        # 比较两份快照，按 |ΔRSS| 排序
+mtop --diff a.json b.json --min-delta 50M --top 10   # 只看显著变化
 ```
 
 ```sh
@@ -40,7 +41,7 @@ mtop diff  over 4s  (437 -> 438 procs)   15 grew, 3 shrank, 1 new, 0 gone
     2796 gnome-shell                  +0.2M     +0.2M      288M      235M
 ```
 
-写快照的那个 `mtop` 进程会被记录为 `self_pid` 并在 diff 中自动排除——否则每次运行都是"new 3 MB / gone 3 MB"的假噪声。
+写快照的那个 `mtop` 进程会被记录为 `self_pid` 并在 diff 中自动排除——否则每次运行都是"new 3 MB / gone 3 MB"的假噪声。`--min-delta` 接受 `50M` / `512k` / `2G` / 纯数字（kB）。
 
 ## 按键
 
@@ -83,6 +84,7 @@ mtop diff  over 4s  (437 -> 438 procs)   15 grew, 3 shrank, 1 new, 0 gone
 - 数值是**层级累计**的：父 cgroup 已包含子 cgroup，所以列表按 `current` 排序而不是跨层相加。
 - 校验恒等式：`current ≈ anon + file + kernel`（`slab` 属于 `kernel`，`shmem` 属于 `file`）。
 - `MAX` 显示 `max` 表示无限制；条按 `current/limit` 画，无限制时按最大 cgroup 归一。
+- `OOM` 列是累计 `oom_kill`；采样间隔内新增时显示 `2▲` 并在标题给出 `oom +N since last sample`。第一次扫描记为 0 增量，不会误报。
 - 仅支持 cgroup v2（需要 `memory.current`）；v1 或未启用 memory controller 时视图会说明原因。
 - `Enter` 下钻：列出该 cgroup **子树**内的进程（PID/COMM/RSS/PSS/PSS÷RSS），按 RSS 排序；`Esc` 返回。pid→cgroup 映射来自 `/proc/PID/cgroup`，与 cgroup 列表一起每 5 s 刷新。
 

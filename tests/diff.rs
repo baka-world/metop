@@ -134,3 +134,44 @@ fn snapshot_writers_are_not_reported() {
         "writer counted as a change:\n{text}"
     );
 }
+
+#[test]
+fn min_delta_filters_small_changes() {
+    let (a, b) = (fixture("md_a.json", A), fixture("md_b.json", B));
+    let out = Command::new(env!("CARGO_BIN_EXE_mtop"))
+        .args(["--diff", a.to_str().unwrap(), b.to_str().unwrap(), "--min-delta", "100M"])
+        .output()
+        .expect("spawn mtop --diff");
+    let text = String::from_utf8_lossy(&out.stdout);
+
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(text.contains("min |ΔRSS| 100M"), "threshold not in header:\n{text}");
+    assert!(text.contains("alpha"), "big change filtered out:\n{text}");
+    assert!(!text.contains("gamma"), "small change passed the filter:\n{text}");
+}
+
+#[test]
+fn top_limits_the_row_count() {
+    let (a, b) = (fixture("top_a.json", A), fixture("top_b.json", B));
+    let out = Command::new(env!("CARGO_BIN_EXE_mtop"))
+        .args(["--diff", a.to_str().unwrap(), b.to_str().unwrap(), "--top", "1"])
+        .output()
+        .expect("spawn mtop --diff");
+    let text = String::from_utf8_lossy(&out.stdout);
+    let rows = text.lines().skip(2).filter(|l| !l.trim().is_empty()).count();
+    assert_eq!(rows, 1, "expected one data row:\n{text}");
+    assert!(text.contains("alpha"), "wrong row kept:\n{text}");
+}
+
+#[test]
+fn bad_flags_are_rejected() {
+    let (a, b) = (fixture("badf_a.json", A), fixture("badf_b.json", B));
+    for bad in [["--min-delta", "lots"], ["--top", "many"]] {
+        let out = Command::new(env!("CARGO_BIN_EXE_mtop"))
+            .args(["--diff", a.to_str().unwrap(), b.to_str().unwrap()])
+            .args(bad)
+            .output()
+            .expect("spawn mtop");
+        assert_eq!(out.status.code(), Some(2), "bad flag {bad:?} accepted");
+    }
+}

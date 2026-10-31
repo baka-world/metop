@@ -10,12 +10,14 @@ mtop - Linux memory analysis TUI
 USAGE:
     mtop [--pid PID]
     mtop --json [--pid PID]
-    mtop --diff A.json B.json
+    mtop --diff A.json B.json [--min-delta 50M] [--top 20]
 
 OPTIONS:
     -p, --pid PID   start with PID selected (also enables Enter drill-down)
         --json      print one snapshot as JSON and exit (diffable; no TUI)
         --diff A B  compare two --json snapshots, print what changed and exit
+        --min-delta SIZE  hide diff rows below this |ΔRSS| (50M, 512k, 2G)
+        --top N           how many diff rows to print (default 30)
     -h, --help      show this help
 
 KEYS:
@@ -31,6 +33,7 @@ fn main() -> ExitCode {
     let mut start_pid = None;
     let mut json_out = false;
     let mut diff: Option<(String, String)> = None;
+    let mut diff_opts = mtop::diff::Opts::default();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut i = 0;
     while i < args.len() {
@@ -46,6 +49,26 @@ fn main() -> ExitCode {
                 }
             }
             "--json" => json_out = true,
+            "--min-delta" => {
+                i += 1;
+                match args.get(i).and_then(|s| mtop::diff::parse_size(s)) {
+                    Some(kb) => diff_opts.min_delta_kb = kb,
+                    None => {
+                        eprintln!("mtop: --min-delta needs a size like 50M or 512k");
+                        return ExitCode::from(2);
+                    }
+                }
+            }
+            "--top" => {
+                i += 1;
+                match args.get(i).and_then(|s| s.parse::<usize>().ok()) {
+                    Some(n) => diff_opts.top = n,
+                    None => {
+                        eprintln!("mtop: --top needs a number");
+                        return ExitCode::from(2);
+                    }
+                }
+            }
             "--diff" => {
                 let a = args.get(i + 1).cloned();
                 let b = args.get(i + 2).cloned();
@@ -78,7 +101,7 @@ fn main() -> ExitCode {
         };
         let text = read(&a_path)
             .and_then(|a| Ok((a, read(&b_path)?)))
-            .and_then(|(a, b)| mtop::diff::render(&a, &b, 30));
+            .and_then(|(a, b)| mtop::diff::render(&a, &b, &diff_opts));
         return match text {
             Ok(text) => match mtop::json::write_str(&text) {
                 Ok(()) => ExitCode::SUCCESS,
