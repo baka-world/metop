@@ -54,7 +54,7 @@ mtop diff  over 4s  (437 -> 438 procs)   15 grew, 3 shrank, 1 new, 0 gone
 | `j`/`k`、`↑`/`↓`、`PgUp`/`PgDn` | 移动 |
 | `g`/`G` | 顶 / 底 |
 | `s` / `r` | 切换排序键 / 反向（cgroup 视图按 CURRENT/ANON/FILE/SLAB 排序） |
-| `Tab` | 进程视图 ⇄ cgroup 视图 |
+| `Tab` | 进程视图 → cgroup 视图 → apps 视图（循环） |
 | `f` | 过滤（进程名 / PID / cgroup 路径；详情页中过滤映射名） |
 | `Enter` | 进程视图：进入详情；详情内展开/收起映射；cgroup 视图：列出子树内进程 |
 | `z` / `Z`（详情） | 全部收起 / 全部展开 |
@@ -72,6 +72,26 @@ mtop diff  over 4s  (437 -> 438 procs)   15 grew, 3 shrank, 1 new, 0 gone
 | `/proc/PID/smaps` | 31–65 ms（2000+ VMA） | 仅焦点进程，2 s 一次 |
 
 `/proc` 解析全部交给 [`procfs`](https://crates.io/crates/procfs) 0.18，UI 用 [`ratatui`](https://crates.io/crates/ratatui) 0.30（版本锁定）。复用了什么、为什么没有 fork `bottom`、以及精度与风险，见 [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md)。
+
+## apps 视图（`Tab` 两次）：按应用的内存地图
+
+进程表回答"哪个进程大"，cgroup 视图回答"哪个边界大"，apps 视图回答**"哪个应用占了多少"**——把同一应用的几十个进程合并，用**面积 ∝ PSS** 的 treemap 画出来。
+
+```
+┌ apps  metric PSS  filter -  (20 groups · 5.40G) ──────────────────────────────────┐
+│ com.google.Chrome                     gnome-chatgpt        ghostty-…             │
+│ 1.57G · 30p                           611M · 17p           529M · 12p             │
+│                                                                                    │
+│                                       gnome-trilium        node-22                │
+│                                       277M · 6p            268M · 1p              │
+└────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+- **分组口径**（三级回退）：systemd 的 `app-*.scope`（去掉末尾 PID、还原 `\x2d`，同一应用的多个 scope 合并）→ 可执行文件名（去掉 ` (deleted)`）→ `comm`。Chrome 就是典型：两个 scope、30 个进程，合并成一个 1.57G 的块。
+- **为什么用 PSS**：同一时刻 chrome 的 RSS 相加 4.3G、PSS 1.57G；全机 RSS 之和是 PSS 的 2.7 倍。用 RSS 画图会把多进程应用放大成假地图。`s` 在 PSS / USS / RSS 间切换（USS ≈ "关掉它能省多少"）。
+- **长尾**：占比 < 0.5% 的应用合并成 `others (N)`，否则 327 个应用会碎成一堆 1 像素的条。
+- **下钻**：`Enter` 跳到进程视图并只显示该应用的进程，标题显示 `app: <name>`，`Esc` 清除。
+- **窄终端**：宽度 < 100 或高度 < 14 时自动退化成按应用排序的列表（`s`/`j/k` 同样可用）。
 
 ## cgroup 视图（`Tab`）
 

@@ -7,6 +7,7 @@ use ratatui::widgets::TableState;
 use ratatui::DefaultTerminal;
 
 use crate::model::{Focus, ProcRow, Snapshot, SortKey};
+use crate::apps::AppGroup;
 use crate::cgroup::CgroupMem;
 use crate::procfs::{Vma, VmaGroup};
 use crate::ui;
@@ -17,6 +18,40 @@ pub const HISTORY: usize = 120;
 pub enum View {
     Procs,
     Cgroups,
+    Apps,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum AppMetric {
+    Pss,
+    Uss,
+    Rss,
+}
+
+impl AppMetric {
+    pub fn label(self) -> &'static str {
+        match self {
+            AppMetric::Pss => "PSS",
+            AppMetric::Uss => "USS",
+            AppMetric::Rss => "RSS",
+        }
+    }
+
+    pub fn value(self, g: &AppGroup) -> u64 {
+        match self {
+            AppMetric::Pss => g.pss_kb,
+            AppMetric::Uss => g.uss_kb,
+            AppMetric::Rss => g.rss_kb,
+        }
+    }
+
+    fn next(self) -> Self {
+        match self {
+            AppMetric::Pss => AppMetric::Uss,
+            AppMetric::Uss => AppMetric::Rss,
+            AppMetric::Rss => AppMetric::Pss,
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -70,6 +105,16 @@ pub struct App {
     pub sort: SortKey,
     pub cgroup_sort: CgroupSort,
     pub cgroup_sel: usize,
+    /// App groups for the treemap, recomputed per snapshot (collapsed to the
+    /// top few percent so the map does not dissolve into slivers).
+    pub app_groups: Vec<AppGroup>,
+    pub app_sel: usize,
+    pub app_metric: AppMetric,
+    pub app_state: TableState,
+    /// Drill target coming from the apps view: only these pids are shown in
+    /// the process table.
+    pub pid_filter: Option<std::collections::HashSet<u32>>,
+    pub pid_filter_name: Option<String>,
     /// cgroup path whose processes are being listed (drill-down).
     pub drill: Option<String>,
     pub drill_sel: usize,
@@ -111,6 +156,12 @@ impl App {
             sort: SortKey::Rss,
             cgroup_sort: CgroupSort::Current,
             cgroup_sel: 0,
+            app_groups: Vec::new(),
+            app_sel: 0,
+            app_metric: AppMetric::Pss,
+            app_state: TableState::default(),
+            pid_filter: None,
+            pid_filter_name: None,
             drill: None,
             drill_sel: 0,
             desc: true,
@@ -165,6 +216,11 @@ impl App {
         let mut rows: Vec<&ProcRow> = snap
             .rows
             .iter()
+            .filter(|r| {
+                self.pid_filter
+                    .as_ref()
+                    .is_none_or(|set| set.contains(&r.pid))
+            })
             .filter(|r| {
                 needle.is_empty()
                     || r.comm.to_lowercase().contains(&needle)
@@ -238,6 +294,18 @@ impl App {
         rows
     }
 
+    pub fn visible_apps(&self) -> Vec<&AppGroup> {
+        let needle = self.filter.to_lowercase();
+        self.app_groups
+            .iter()
+            .filter(|g| needle.is_empty() || g.name.to_lowercase().contains(&needle))
+            .collect()
+    }
+
+    pub fn selected_app(&self) -> Option<&AppGroup> {
+        self.visible_apps().get(self.app_sel).copied()
+    }
+
     pub fn selected_pid(&self) -> Option<u32> {
         // While the detail view is open the focused pid comes from the loaded
         // detail, but it must fall back to the table selection: the Enter
@@ -283,6 +351,10 @@ impl App {
             }
         }
         self.history.retain(|pid, _| seen.contains(pid));
+        self.app_groups = crate::apps::collapse(
+            crate::apps::group(&snap.rows, &snap.pss, &snap.pid_cgroup, &snap.pid_exe),
+            0.005,
+        );
 
         // The cgroup list only changes on the 5 s scan; sampling it every tick
         // would record the same value five times and shrink the window.
@@ -366,9 +438,12 @@ impl App {
         self.cgroup_sel = self.cgroup_sel.min(n_cg.saturating_sub(1));
         let n_members = self.cgroup_members().len();
         self.drill_sel = self.drill_sel.min(n_members.saturating_sub(1));
+        let n_apps = self.visible_apps().len();
+        self.app_sel = self.app_sel.min(n_apps.saturating_sub(1));
         self.detail_sel = self.detail_sel.min(self.detail_len().saturating_sub(1));
         self.table_state.select(Some(self.sel));
         self.cgroup_state.select(Some(self.cgroup_sel));
+        self.app_state.select(Some(self.app_sel));
         self.drill_state.select(Some(self.drill_sel));
         self.detail_state.select(Some(self.detail_sel));
     }
@@ -387,7 +462,8 @@ impl App {
             KeyCode::Tab => {
                 self.view = match self.view {
                     View::Procs => View::Cgroups,
-                    View::Cgroups => View::Procs,
+                    View::Cgroups => View::Apps,
+                    View::Apps => View::Procs,
                 };
                 self.detail = false;
                 self.drill = None;
@@ -402,14 +478,19 @@ impl App {
                 self.detail_sel = 0;
                 self.cgroup_sel = 0;
                 self.drill_sel = 0;
+                self.app_sel = 0;
             }
             KeyCode::Char('G') | KeyCode::End => {
                 self.sel = usize::MAX / 2;
                 self.cgroup_sel = usize::MAX / 2;
                 self.drill_sel = usize::MAX / 2;
+                self.app_sel = usize::MAX / 2;
             }
             KeyCode::Char('s') => {
-                if self.view == View::Cgroups {
+                if self.view == View::Apps {
+                    self.app_metric = self.app_metric.next();
+                    self.app_sel = 0;
+                } else if self.view == View::Cgroups {
                     self.cgroup_sort = self.cgroup_sort.next();
                     self.cgroup_sel = 0;
                 } else {
@@ -428,7 +509,19 @@ impl App {
                 };
             }
             KeyCode::Enter | KeyCode::Char(' ') => {
-                if self.view == View::Cgroups {
+                if self.view == View::Apps {
+                    let target = self
+                        .selected_app()
+                        .filter(|g| !g.synthetic)
+                        .map(|g| (g.name.clone(), g.pids.clone()));
+                    if let Some((name, pids)) = target {
+                        self.pid_filter = Some(pids.into_iter().collect());
+                        self.pid_filter_name = Some(name);
+                        self.view = View::Procs;
+                        self.sel = 0;
+                        self.detail = false;
+                    }
+                } else if self.view == View::Cgroups {
                     // Enter opens the process list of the selected subtree.
                     if self.drill.is_none()
                         && let Some(path) = self
@@ -455,7 +548,11 @@ impl App {
                 }
             }
             KeyCode::Esc => {
-                if self.view == View::Cgroups && self.drill.is_some() {
+                if self.pid_filter.is_some() {
+                    self.pid_filter = None;
+                    self.pid_filter_name = None;
+                    self.sel = 0;
+                } else if self.view == View::Cgroups && self.drill.is_some() {
                     self.drill = None;
                     self.drill_sel = 0;
                 } else if self.detail && !self.detail_filter.is_empty() {
@@ -505,6 +602,11 @@ impl App {
     }
 
     fn move_sel(&mut self, delta: isize) {
+        if self.view == View::Apps {
+            let n = self.visible_apps().len();
+            self.app_sel = step(self.app_sel, delta, n);
+            return;
+        }
         if self.view == View::Cgroups {
             if self.drill.is_some() {
                 let n = self.cgroup_members().len();
