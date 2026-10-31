@@ -1,0 +1,18 @@
+[package]
+name = "mtop"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Linux memory analysis TUI: RSS/PSS/USS per process, VMA drill-down"
+license = "MIT"
+
+[dependencies]
+# pinned: 0.30 split ratatui into core/widgets/backends; minor bumps have changed
+# widget APIs (Gauge::label, Frame::size -> area). Revisit deliberately.
+ratatui = "=0.30.2"
+# typed /proc reader: smaps/smaps_rollup/statm/meminfo parsing is theirs, not ours
+procfs = { version = "0.18", default-features = false }
+
+[profile.release]
+lto = "thin"
+strip = true
