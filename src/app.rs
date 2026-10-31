@@ -7,10 +7,57 @@ use ratatui::widgets::TableState;
 use ratatui::DefaultTerminal;
 
 use crate::model::{Focus, ProcRow, Snapshot, SortKey};
+use crate::cgroup::CgroupMem;
 use crate::procfs::{Vma, VmaGroup};
 use crate::ui;
 
 pub const HISTORY: usize = 120;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum View {
+    Procs,
+    Cgroups,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CgroupSort {
+    Current,
+    Anon,
+    File,
+    Slab,
+}
+
+impl CgroupSort {
+    const ALL: [CgroupSort; 4] = [
+        CgroupSort::Current,
+        CgroupSort::Anon,
+        CgroupSort::File,
+        CgroupSort::Slab,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            CgroupSort::Current => "CUR",
+            CgroupSort::Anon => "ANON",
+            CgroupSort::File => "FILE",
+            CgroupSort::Slab => "SLAB",
+        }
+    }
+
+    fn next(self) -> Self {
+        let i = Self::ALL.iter().position(|k| *k == self).unwrap_or(0);
+        Self::ALL[(i + 1) % Self::ALL.len()]
+    }
+
+    fn key(self, c: &CgroupMem) -> u64 {
+        match self {
+            CgroupSort::Current => c.current_kb,
+            CgroupSort::Anon => c.anon_kb,
+            CgroupSort::File => c.file_kb,
+            CgroupSort::Slab => c.slab_kb,
+        }
+    }
+}
 
 /// A row in the detail view: either an aggregated mapping or one VMA inside it.
 pub enum DetailRow<'a> {
@@ -19,7 +66,10 @@ pub enum DetailRow<'a> {
 }
 
 pub struct App {
+    pub view: View,
     pub sort: SortKey,
+    pub cgroup_sort: CgroupSort,
+    pub cgroup_sel: usize,
     pub desc: bool,
     pub filter: String,
     /// Mapping-name filter for the VMA detail view (independent of `filter`).
@@ -35,6 +85,7 @@ pub struct App {
     pub detail_sel: usize,
     pub snap: Option<Snapshot>,
     pub table_state: TableState,
+    pub cgroup_state: TableState,
     pub detail_state: TableState,
     pub history: HashMap<u32, VecDeque<u64>>,
     last_sent: Option<(Option<u32>, bool)>,
@@ -46,7 +97,10 @@ pub struct App {
 impl App {
     pub fn new(start_pid: Option<u32>) -> Self {
         let mut app = App {
+            view: View::Procs,
             sort: SortKey::Rss,
+            cgroup_sort: CgroupSort::Current,
+            cgroup_sel: 0,
             desc: true,
             filter: String::new(),
             detail_filter: String::new(),
@@ -59,6 +113,7 @@ impl App {
             detail_sel: 0,
             snap: None,
             table_state: TableState::default(),
+            cgroup_state: TableState::default(),
             detail_state: TableState::default(),
             history: HashMap::new(),
             last_sent: None,
@@ -123,6 +178,23 @@ impl App {
             let ord = if desc { ord.reverse() } else { ord };
             ord.then_with(|| a.pid.cmp(&b.pid))
         });
+        rows
+    }
+
+    pub fn visible_cgroups(&self) -> Vec<&CgroupMem> {
+        let Some(snap) = &self.snap else {
+            return Vec::new();
+        };
+        let needle = self.filter.to_lowercase();
+        let mut rows: Vec<&CgroupMem> = snap
+            .cgroups
+            .iter()
+            .filter(|c| needle.is_empty() || c.path.to_lowercase().contains(&needle))
+            .collect();
+        rows.sort_by_key(|c| self.cgroup_sort.key(c));
+        if self.desc {
+            rows.reverse();
+        }
         rows
     }
 
@@ -225,8 +297,11 @@ impl App {
     fn clamp(&mut self) {
         let n_proc = self.visible().len();
         self.sel = self.sel.min(n_proc.saturating_sub(1));
+        let n_cg = self.visible_cgroups().len();
+        self.cgroup_sel = self.cgroup_sel.min(n_cg.saturating_sub(1));
         self.detail_sel = self.detail_sel.min(self.detail_len().saturating_sub(1));
         self.table_state.select(Some(self.sel));
+        self.cgroup_state.select(Some(self.cgroup_sel));
         self.detail_state.select(Some(self.detail_sel));
     }
 
@@ -241,6 +316,14 @@ impl App {
         match key.code {
             KeyCode::Char('q') => return true,
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => return true,
+            KeyCode::Tab => {
+                self.view = match self.view {
+                    View::Procs => View::Cgroups,
+                    View::Cgroups => View::Procs,
+                };
+                self.detail = false;
+                self.editing = false;
+            }
             KeyCode::Char('j') | KeyCode::Down => self.move_sel(1),
             KeyCode::Char('k') | KeyCode::Up => self.move_sel(-1),
             KeyCode::PageDown => self.move_sel(10),
@@ -248,11 +331,20 @@ impl App {
             KeyCode::Char('g') | KeyCode::Home => {
                 self.sel = 0;
                 self.detail_sel = 0;
+                self.cgroup_sel = 0;
             }
-            KeyCode::Char('G') | KeyCode::End => self.sel = usize::MAX / 2,
+            KeyCode::Char('G') | KeyCode::End => {
+                self.sel = usize::MAX / 2;
+                self.cgroup_sel = usize::MAX / 2;
+            }
             KeyCode::Char('s') => {
-                self.sort = self.sort.next();
-                self.sel = 0;
+                if self.view == View::Cgroups {
+                    self.cgroup_sort = self.cgroup_sort.next();
+                    self.cgroup_sel = 0;
+                } else {
+                    self.sort = self.sort.next();
+                    self.sel = 0;
+                }
             }
             KeyCode::Char('r') => self.desc = !self.desc,
             KeyCode::Char('f') => {
@@ -328,6 +420,11 @@ impl App {
     }
 
     fn move_sel(&mut self, delta: isize) {
+        if self.view == View::Cgroups {
+            let n = self.visible_cgroups().len();
+            self.cgroup_sel = step(self.cgroup_sel, delta, n);
+            return;
+        }
         if self.detail {
             let n = self.detail_len();
             self.detail_sel = step(self.detail_sel, delta, n);

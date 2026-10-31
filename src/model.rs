@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
+use crate::cgroup::CgroupMem;
 use crate::procfs::{MemInfo, SmapsReport};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -77,6 +78,8 @@ pub struct Snapshot {
     /// Only pids the sampler has spent page-table-walk budget on.
     pub pss: HashMap<u32, PssInfo>,
     pub mem: MemInfo,
+    /// cgroup v2 memory accounting (empty on v1 or when unreadable).
+    pub cgroups: Vec<CgroupMem>,
     pub detail: Option<Detail>,
     /// Why the detail view is empty (usually EACCES on a process we don't own).
     pub detail_error: Option<String>,

@@ -4,12 +4,23 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Sparkline, Table};
 use ratatui::Frame;
 
-use crate::app::{App, DetailRow};
+use crate::app::{App, DetailRow, View};
 use crate::model::{ProcRow, SortKey, PSS_MAX_AGE};
 use crate::procfs::fmt_kb;
 
 const SHARE_W: usize = 6;
 const MIX_W: usize = 12;
+
+/// Keep the tail of a path: "/user.slice/…/app.slice/terminal.scope" is far
+/// more useful than "/user.slice/user-1000.slice/user@1000.serv…".
+fn truncate_left(s: &str, n: usize) -> String {
+    let count = s.chars().count();
+    if count <= n {
+        s.to_string()
+    } else {
+        format!("…{}", s.chars().skip(count - (n - 1)).collect::<String>())
+    }
+}
 
 fn truncate(s: &str, n: usize) -> String {
     if s.chars().count() <= n {
@@ -31,9 +42,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     header(f, chunks[0], app);
     let has_detail = app.snap.as_ref().is_some_and(|s| s.detail.is_some());
     let detail_error = app.snap.as_ref().and_then(|s| s.detail_error.clone());
-    match (app.snap.is_some(), app.detail) {
-        (true, true) if has_detail => detail_view(f, chunks[1], app),
-        (true, true) => {
+    match (app.snap.is_some(), app.detail, app.view) {
+        (true, true, View::Procs) if has_detail => detail_view(f, chunks[1], app),
+        (true, true, View::Procs) => {
             let cause = detail_error.unwrap_or_else(|| "waiting for sampler…".into());
             f.render_widget(
                 Paragraph::new(format!("vm mappings unavailable\n\n{cause}"))
@@ -42,8 +53,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 chunks[1],
             );
         }
-        (true, _) => table_view(f, chunks[1], app),
-        (false, _) => {
+        (true, _, View::Cgroups) => cgroup_view(f, chunks[1], app),
+        (true, _, _) => table_view(f, chunks[1], app),
+        (false, ..) => {
             f.render_widget(
                 Paragraph::new("sampling /proc…")
                     .alignment(Alignment::Center)
@@ -128,7 +140,15 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
     );
 
     // RSS trend of the focused process.
-    let (label, data): (String, Vec<u64>) = match app.selected_pid() {
+    let (label, data): (String, Vec<u64>) = match app.view {
+        View::Cgroups => match app.visible_cgroups().get(app.cgroup_sel) {
+            Some(cg) => (
+                format!(" {} {}", truncate_left(&cg.path, 26), fmt_kb(cg.current_kb)),
+                Vec::new(),
+            ),
+            None => (" cgroups".into(), Vec::new()),
+        },
+        View::Procs => match app.selected_pid() {
         Some(pid) => {
             let hist = app.history.get(&pid).cloned().unwrap_or_default();
             let rss = hist.back().copied().unwrap_or(0);
@@ -144,6 +164,7 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
             )
         }
         None => (" rss trend".into(), Vec::new()),
+        },
     };
     let max = data.iter().copied().max().unwrap_or(1).max(1);
     f.render_widget(
@@ -383,6 +404,107 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
     app.table_state = state;
 }
 
+fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
+    let mut state = std::mem::take(&mut app.cgroup_state);
+    let Some(snap) = &app.snap else {
+        app.cgroup_state = state;
+        return;
+    };
+    if snap.cgroups.is_empty() {
+        f.render_widget(
+            Paragraph::new(
+                "cgroup v2 memory controller not available\n\n                 (needs /sys/fs/cgroup/memory.current; v1 or a restricted hierarchy shows nothing)",
+            )
+            .wrap(ratatui::widgets::Wrap { trim: true })
+            .block(Block::new().borders(Borders::ALL).title(" cgroups ")),
+            area,
+        );
+        app.cgroup_state = state;
+        return;
+    }
+
+    let visible = app.visible_cgroups();
+    let max_cur = snap.cgroups.iter().map(|c| c.current_kb).max().unwrap_or(1).max(1);
+    let rows: Vec<Row> = visible
+        .iter()
+        .map(|c| {
+            let (frac, over) = match c.limit_kb {
+                Some(limit) if limit > 0 => (c.current_kb as f64 / limit as f64, limit),
+                _ => (c.current_kb as f64 / max_cur as f64, 0),
+            };
+            let color = if c.oom_kills > 0 {
+                Color::Red
+            } else if over > 0 && frac > 0.9 {
+                Color::Yellow
+            } else {
+                Color::Cyan
+            };
+            let oom_style = if c.oom_kills > 0 {
+                Style::new().fg(Color::Red)
+            } else {
+                Style::new().fg(Color::DarkGray)
+            };
+            Row::new(vec![
+                Cell::from(truncate_left(&c.path, 46)),
+                Cell::from(format!("{:>9}", fmt_kb(c.current_kb))),
+                Cell::from(format!("{:>9}", fmt_kb(c.anon_kb))),
+                Cell::from(format!("{:>9}", fmt_kb(c.file_kb))),
+                Cell::from(format!("{:>9}", fmt_kb(c.kernel_kb))),
+                Cell::from(format!("{:>9}", fmt_kb(c.slab_kb))),
+                Cell::from(match c.limit_kb {
+                    Some(l) => Text::from(format!("{:>9}", fmt_kb(l))),
+                    None => Text::from(Span::styled("      max", Style::new().fg(Color::DarkGray))),
+                }),
+                Cell::from(Text::from(Span::styled(format!("{:>4}", c.oom_kills), oom_style))),
+                bar_cell(frac, color, 10),
+            ])
+        })
+        .collect();
+
+    let header = Row::new(vec![
+        Cell::from(format!("{:<46}", "CGROUP")),
+        Cell::from(format!("{:>9}", "CURRENT")),
+        Cell::from(format!("{:>9}", "ANON")),
+        Cell::from(format!("{:>9}", "FILE")),
+        Cell::from(format!("{:>9}", "KERNEL")),
+        Cell::from(format!("{:>9}", "SLAB")),
+        Cell::from(format!("{:>9}", "MAX")),
+        Cell::from(format!("{:>4}", "OOM")),
+        Cell::from(" CUR/MAX"),
+    ])
+    .style(Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+
+    let title = format!(
+        " cgroups  sort {} {}  filter {}  ({} of {}) ",
+        app.cgroup_sort.label(),
+        if app.desc { "↓" } else { "↑" },
+        if app.filter.is_empty() { "-" } else { app.filter.as_str() },
+        visible.len(),
+        snap.cgroups.len()
+    );
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(46),
+            Constraint::Length(9),
+            Constraint::Length(9),
+            Constraint::Length(9),
+            Constraint::Length(9),
+            Constraint::Length(9),
+            Constraint::Length(9),
+            Constraint::Length(4),
+            Constraint::Length(10),
+        ],
+    )
+    .header(header)
+    .block(Block::new().borders(Borders::ALL).title(title))
+    .row_highlight_style(Style::new().add_modifier(Modifier::REVERSED))
+    .highlight_symbol("▸");
+
+    f.render_stateful_widget(table, area, &mut state);
+    app.cgroup_state = state;
+}
+
 fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
     let mut state = std::mem::take(&mut app.detail_state);
     let Some(d) = app.snap.as_ref().and_then(|s| s.detail.as_ref()) else {
@@ -553,6 +675,14 @@ fn footer(f: &mut Frame, area: Rect, app: &App) {
             Span::styled("▏", Style::new().fg(Color::Yellow)),
             Span::styled("   Enter 应用 · Esc 取消", Style::new().fg(Color::DarkGray)),
         ])
+    } else if app.view == View::Cgroups {
+        Line::from(Span::styled(
+            format!(
+                " q quit │ Tab procs │ j/k │ s sort ({}) │ r reverse │ f filter path ",
+                app.cgroup_sort.label()
+            ),
+            Style::new().fg(Color::DarkGray),
+        ))
     } else if app.detail {
         Line::from(Span::styled(
             " q quit │ j/k │ Enter expand │ z/Z collapse/expand all │ f filter │ Esc back ",
@@ -561,7 +691,7 @@ fn footer(f: &mut Frame, area: Rect, app: &App) {
     } else {
         Line::from(Span::styled(
             format!(
-                " q quit │ j/k move │ g/G ends │ s sort ({}) │ r reverse │ f filter │ Enter vma detail ",
+                " q quit │ Tab cgroups │ j/k move │ g/G ends │ s sort ({}) │ r reverse │ f filter │ Enter vma detail ",
                 app.sort.label()
             ),
             Style::new().fg(Color::DarkGray),

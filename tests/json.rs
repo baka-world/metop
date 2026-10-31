@@ -85,3 +85,37 @@ fn detail_is_serialized_for_the_requested_pid() {
         "group pss {sum} kB vs rollup {total} kB"
     );
 }
+
+#[test]
+fn cgroups_are_exported_when_the_system_has_them() {
+    let v = run(&["--json"]);
+    let cgs = v["cgroups"].as_array().expect("cgroups array");
+    let v2 = std::path::Path::new("/sys/fs/cgroup/cgroup.controllers").exists();
+    if !v2 {
+        return; // cgroup v1: empty array is the documented behaviour
+    }
+    assert!(!cgs.is_empty(), "cgroup v2 present but nothing exported");
+    let first = &cgs[0];
+    for key in [
+        "path",
+        "current_kb",
+        "anon_kb",
+        "file_kb",
+        "kernel_kb",
+        "slab_kb",
+        "shmem_kb",
+        "oom_kills",
+    ] {
+        assert!(!first[key].is_null(), "missing {key} in cgroup export");
+    }
+    // current ≈ anon + file + kernel; slab ⊂ kernel, shmem ⊂ file.
+    let sum = first["anon_kb"].as_u64().unwrap()
+        + first["file_kb"].as_u64().unwrap()
+        + first["kernel_kb"].as_u64().unwrap();
+    let cur = first["current_kb"].as_u64().unwrap();
+    assert!(
+        sum.abs_diff(cur) <= cur / 5 + 4096,
+        "{}: current {cur} kB vs anon+file+kernel {sum} kB",
+        first["path"]
+    );
+}
