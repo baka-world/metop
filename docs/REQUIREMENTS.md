@@ -118,14 +118,14 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 
 ## 8. 已知风险
 
-1. **PSS 覆盖不全**：预算内只刷新可见区，覆盖率见表头。按 PSS 排序时未覆盖行参与排序即为 0——M2 要给"按 PSS 排序"单独提高预算或只对窗口内排序。
+1. **PSS 覆盖需要时间填满**：预算按"未知优先、其次最旧"分配，全量可读进程约 5 s 填满（长期稳态覆盖满）。填写期间按 PSS 排序会有误差，标题会显式标注 `ranking incomplete`；`n/a` 行按 0 参与排序。
 2. **测量即扰动**：读 `smaps` 会拿 `mmap_lock` 走页表，对大进程有明显内核开销；因此详情页不随 tick 刷新。
 3. **权限**：非本用户进程的 `smaps` 可能 `EACCES`，详情页会显示原因。
 4. **PID 复用**：扫描期间进程退出/复用 PID，某一行可能短暂混合两个进程的数据。
 4b. **读不到 ≠ 不占内存**：`n/a` 的进程（多为 root 进程）仍有 RSS，只是拿不到 PSS。要全量 PSS 就用 `sudo` 运行；这条限制来自内核的 ptrace 权限模型，不是实现缺陷。
 5. **内核线程**：`smaps_rollup` 为空，PSS 显示 `—`，不是 0。
 6. **快照的 new/gone 语义**：`--diff` 只比较两份快照，进程在两次采样之间重启会同时表现为 gone + new（PID 变化）；写快照的 `mtop` 自身按 `self_pid` 排除。
-7. **以 root 运行的路径待实测**：`sudo` 应让 `denied` 归零、`covered` 覆盖到 `procs − no_mm`；本机没有免密 sudo，该路径由使用者按 [VERIFY-ROOT.md](VERIFY-ROOT.md) 验证。
+7. **root 路径已实测**（原为风险，现为已验证）：`sudo scripts/verify-root.sh` 输出 `procs=447 covered=264 denied=0 no_mm=183`，`264 + 183 = 447`，`denied` 归零、无 `PSS > RSS`；TUI 表头从 `203/262 + 59 n/a (needs root)` 变为 `265/265` 且提示消失。记录见 [VERIFY-ROOT.md](VERIFY-ROOT.md#6-实测记录2026-10-31)。
 8. **ratatui 0.30 拆包后的 API 漂移**：`Cargo.toml` 用 `=0.30.2` 锁定，升级需单独评估。
 
 ## 9. 交付状态
@@ -137,7 +137,8 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | 单文件分发 | `cargo build --release` → 1.4 MB，无运行时依赖 |
 | LICENSE | MIT（与 `Cargo.toml` 一致） |
 | `--version` / `--help` | 已提供，`tests/cli.rs` 覆盖 |
-| **未完成** | CI 流水线；git remote/发布产物；root 路径实机验证（清单已备，待执行） |
+| root 路径 | 已实测：`procs=447 covered=264 denied=0 no_mm=183`（见 VERIFY-ROOT.md §6） |
+| **未完成** | CI 流水线；git remote/发布产物 |
 
 ## 10. 里程碑
 
