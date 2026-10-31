@@ -28,7 +28,11 @@ fn snapshot_is_sorted_and_self_consistent() {
     assert_eq!(v["schema"], "mtop.snapshot.v1");
 
     let procs = v["procs"].as_array().expect("procs array");
-    assert!(procs.len() > 5, "suspiciously few processes: {}", procs.len());
+    assert!(
+        procs.len() > 5,
+        "suspiciously few processes: {}",
+        procs.len()
+    );
 
     // Stable pid ordering is what makes `diff a.json b.json` usable.
     let pids: Vec<u64> = procs.iter().map(|p| p["pid"].as_u64().unwrap()).collect();
@@ -77,7 +81,11 @@ fn detail_is_serialized_for_the_requested_pid() {
 
     let d = &v["detail"];
     assert_eq!(d["pid"].as_u64(), Some(me as u64));
-    assert!(v["detail_error"].is_null(), "detail failed: {}", v["detail_error"]);
+    assert!(
+        v["detail_error"].is_null(),
+        "detail failed: {}",
+        v["detail_error"]
+    );
     assert!(d["vma_count"].as_u64().unwrap() > 0, "no VMAs parsed");
 
     let groups = d["groups"].as_array().expect("groups");
@@ -96,8 +104,16 @@ fn cgroups_are_exported_when_the_system_has_them() {
     let v = run(&["--json"]);
     let cgs = v["cgroups"].as_array().expect("cgroups array");
     let v2 = std::path::Path::new("/sys/fs/cgroup/cgroup.controllers").exists();
-    if !v2 {
-        return; // cgroup v1: empty array is the documented behaviour
+    // v2 alone is not enough: the memory controller may not be delegated to
+    // this container. Check for an actual memory.current before asserting.
+    let memory_controller = std::fs::read_dir("/sys/fs/cgroup")
+        .map(|dir| {
+            dir.flatten()
+                .any(|e| e.path().join("memory.current").exists())
+        })
+        .unwrap_or(false);
+    if !v2 || !memory_controller {
+        return;
     }
     assert!(!cgs.is_empty(), "cgroup v2 present but nothing exported");
     let first = &cgs[0];
@@ -153,5 +169,8 @@ fn unknown_field_paths_are_rejected() {
     assert_eq!(out.status.code(), Some(2));
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.contains("unknown field path"), "unhelpful error: {err}");
-    assert!(err.contains("top-level keys"), "no hint about valid keys: {err}");
+    assert!(
+        err.contains("top-level keys"),
+        "no hint about valid keys: {err}"
+    );
 }

@@ -44,7 +44,11 @@ fn diff_reports_growth_new_and_gone() {
     let out = run(&a, &b);
     let text = String::from_utf8_lossy(&out.stdout);
 
-    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     assert!(text.contains("over 30s"), "missing timespan:\n{text}");
     assert!(text.contains("(2 -> 2 procs)"), "missing counts:\n{text}");
     assert!(
@@ -52,21 +56,29 @@ fn diff_reports_growth_new_and_gone() {
         "missing summary:\n{text}"
     );
 
-    let alpha = text.lines().find(|l| l.contains("alpha")).expect("alpha row");
+    let alpha = text
+        .lines()
+        .find(|l| l.contains("alpha"))
+        .expect("alpha row");
     assert!(alpha.contains("+195M"), "delta rss wrong: {alpha}");
     assert!(alpha.contains("+20M"), "delta pss wrong: {alpha}");
 
     assert!(
-        text.lines().any(|l| l.contains("gamma") && l.contains("new")),
+        text.lines()
+            .any(|l| l.contains("gamma") && l.contains("new")),
         "new process not marked:\n{text}"
     );
     assert!(
-        text.lines().any(|l| l.contains("beta") && l.contains("gone")),
+        text.lines()
+            .any(|l| l.contains("beta") && l.contains("gone")),
         "vanished process not marked:\n{text}"
     );
     // Sorted by absolute delta: alpha (+195M) before gamma (+48M).
     let pos = |needle: &str| text.find(needle).unwrap();
-    assert!(pos("alpha") < pos("gamma"), "rows not sorted by |ΔRSS|:\n{text}");
+    assert!(
+        pos("alpha") < pos("gamma"),
+        "rows not sorted by |ΔRSS|:\n{text}"
+    );
 }
 
 #[test]
@@ -139,26 +151,52 @@ fn snapshot_writers_are_not_reported() {
 fn min_delta_filters_small_changes() {
     let (a, b) = (fixture("md_a.json", A), fixture("md_b.json", B));
     let out = Command::new(env!("CARGO_BIN_EXE_mtop"))
-        .args(["--diff", a.to_str().unwrap(), b.to_str().unwrap(), "--min-delta", "100M"])
+        .args([
+            "--diff",
+            a.to_str().unwrap(),
+            b.to_str().unwrap(),
+            "--min-delta",
+            "100M",
+        ])
         .output()
         .expect("spawn mtop --diff");
     let text = String::from_utf8_lossy(&out.stdout);
 
-    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
-    assert!(text.contains("min |ΔRSS| 100M"), "threshold not in header:\n{text}");
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        text.contains("min |ΔRSS| 100M"),
+        "threshold not in header:\n{text}"
+    );
     assert!(text.contains("alpha"), "big change filtered out:\n{text}");
-    assert!(!text.contains("gamma"), "small change passed the filter:\n{text}");
+    assert!(
+        !text.contains("gamma"),
+        "small change passed the filter:\n{text}"
+    );
 }
 
 #[test]
 fn top_limits_the_row_count() {
     let (a, b) = (fixture("top_a.json", A), fixture("top_b.json", B));
     let out = Command::new(env!("CARGO_BIN_EXE_mtop"))
-        .args(["--diff", a.to_str().unwrap(), b.to_str().unwrap(), "--top", "1"])
+        .args([
+            "--diff",
+            a.to_str().unwrap(),
+            b.to_str().unwrap(),
+            "--top",
+            "1",
+        ])
         .output()
         .expect("spawn mtop --diff");
     let text = String::from_utf8_lossy(&out.stdout);
-    let rows = text.lines().skip(2).filter(|l| !l.trim().is_empty()).count();
+    let rows = text
+        .lines()
+        .skip(2)
+        .filter(|l| !l.trim().is_empty())
+        .count();
     assert_eq!(rows, 1, "expected one data row:\n{text}");
     assert!(text.contains("alpha"), "wrong row kept:\n{text}");
 }

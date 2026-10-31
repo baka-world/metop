@@ -145,11 +145,7 @@ pub fn pid_map() -> std::collections::HashMap<u32, String> {
         return out;
     };
     for e in entries.flatten() {
-        let Some(pid) = e
-            .file_name()
-            .to_str()
-            .and_then(|s| s.parse::<u32>().ok())
-        else {
+        let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<u32>().ok()) else {
             continue;
         };
         if let Ok(text) = fs::read_to_string(format!("/proc/{pid}/cgroup"))

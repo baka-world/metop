@@ -1,12 +1,12 @@
+use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Sparkline, Table};
-use ratatui::Frame;
 
 use crate::app::{App, DetailRow, View};
 use crate::cgroup::CgroupMem;
-use crate::model::{SortKey, PSS_MAX_AGE};
+use crate::model::{PSS_MAX_AGE, SortKey};
 use crate::procfs::fmt_kb;
 
 const SHARE_W: usize = 6;
@@ -28,7 +28,11 @@ fn highlight_style() -> Style {
 /// Dim secondary text. On the tinted selected row DarkGray would vanish into
 /// the background, so lift it one step.
 fn dim(selected: bool) -> Color {
-    if selected { Color::Gray } else { Color::DarkGray }
+    if selected {
+        Color::Gray
+    } else {
+        Color::DarkGray
+    }
 }
 
 const SPARK_LEVELS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
@@ -200,7 +204,8 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
     ));
     let line2 = Line::from(line2);
     f.render_widget(
-        Paragraph::new(vec![line1, line2]).block(Block::new().borders(Borders::TOP | Borders::BOTTOM)),
+        Paragraph::new(vec![line1, line2])
+            .block(Block::new().borders(Borders::TOP | Borders::BOTTOM)),
         cols[0],
     );
 
@@ -225,32 +230,28 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
                     .map(|h| h.iter().copied().collect::<Vec<u64>>())
                     .unwrap_or_default();
                 (
-                    format!(
-                        " {} psi {:.1}%",
-                        truncate_left(&cg.path, 16),
-                        cg.psi_some10
-                    ),
+                    format!(" {} psi {:.1}%", truncate_left(&cg.path, 16), cg.psi_some10),
                     hist,
                 )
             }
             None => (" cgroups".into(), Vec::new()),
         },
         View::Procs => match app.selected_pid() {
-        Some(pid) => {
-            let hist = app.history.get(&pid).cloned().unwrap_or_default();
-            let rss = hist.back().copied().unwrap_or(0);
-            let comm = app
-                .snap
-                .as_ref()
-                .and_then(|s| s.rows.iter().find(|r| r.pid == pid))
-                .map(|r| r.comm.clone())
-                .unwrap_or_default();
-            (
-                format!(" {} {} {}", pid, truncate(&comm, 12), fmt_kb(rss)),
-                hist.into_iter().collect(),
-            )
-        }
-        None => (" rss trend".into(), Vec::new()),
+            Some(pid) => {
+                let hist = app.history.get(&pid).cloned().unwrap_or_default();
+                let rss = hist.back().copied().unwrap_or(0);
+                let comm = app
+                    .snap
+                    .as_ref()
+                    .and_then(|s| s.rows.iter().find(|r| r.pid == pid))
+                    .map(|r| r.comm.clone())
+                    .unwrap_or_default();
+                (
+                    format!(" {} {} {}", pid, truncate(&comm, 12), fmt_kb(rss)),
+                    hist.into_iter().collect(),
+                )
+            }
+            None => (" rss trend".into(), Vec::new()),
         },
     };
     // The cgroup sparkline has a fixed 0-100% scale (values are stored as
@@ -391,9 +392,10 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
             // Older than the freshness window: last known value, suffixed with
             // '~' so a stale number can never be mistaken for a live one.
             let stale = pss.is_some_and(|p| p.at.elapsed() > PSS_MAX_AGE);
-            let denied =
-                snap.denied.contains(&r.pid) || snap.no_mm.contains(&r.pid);
-            let ratio = pss.filter(|_| r.rss_kb > 0).map(|p| p.rollup.pss_kb as f64 / r.rss_kb as f64);
+            let denied = snap.denied.contains(&r.pid) || snap.no_mm.contains(&r.pid);
+            let ratio = pss
+                .filter(|_| r.rss_kb > 0)
+                .map(|p| p.rollup.pss_kb as f64 / r.rss_kb as f64);
             let ratio_text = match ratio {
                 Some(v) => format!("{:>6.0}%", v * 100.0),
                 None => "     —".to_string(),
@@ -426,17 +428,13 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
                 Cell::from(truncate(&r.comm, 20)),
                 Cell::from(format!("{:>9}", fmt_kb(r.rss_kb))),
                 Cell::from(match pss_kb {
-                    Some(v) if stale => {
-                        styled_span(format!("{:>8}~", fmt_kb(v)), dim(selected))
-                    }
+                    Some(v) if stale => styled_span(format!("{:>8}~", fmt_kb(v)), dim(selected)),
                     Some(v) => Span::raw(format!("{:>9}", fmt_kb(v))),
                     None if denied => styled_span("      n/a", dim(selected)),
                     None => styled_span("        —", dim(selected)),
                 }),
                 Cell::from(match uss_kb {
-                    Some(v) if stale => {
-                        styled_span(format!("{:>8}~", fmt_kb(v)), dim(selected))
-                    }
+                    Some(v) if stale => styled_span(format!("{:>8}~", fmt_kb(v)), dim(selected)),
                     Some(v) => Span::raw(format!("{:>9}", fmt_kb(v))),
                     None if denied => styled_span("      n/a", dim(selected)),
                     None => styled_span("        —", dim(selected)),
@@ -473,7 +471,11 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
         " procs  sort {} {}  filter {} ",
         app.sort.label(),
         if app.desc { "↓" } else { "↑" },
-        if app.filter.is_empty() { "-" } else { app.filter.as_str() }
+        if app.filter.is_empty() {
+            "-"
+        } else {
+            app.filter.as_str()
+        }
     );
     if let Some(name) = &app.pid_filter_name {
         sort_label.push_str(&format!("  app: {name} (Esc clears) "));
@@ -541,7 +543,11 @@ fn apps_view(f: &mut Frame, area: Rect, app: &mut App) {
         " apps  metric {}{}  filter {}  ({} groups · {}) ",
         app.app_metric.label(),
         metric_hint,
-        if app.filter.is_empty() { "-" } else { app.filter.as_str() },
+        if app.filter.is_empty() {
+            "-"
+        } else {
+            app.filter.as_str()
+        },
         apps.len(),
         fmt_kb(total)
     );
@@ -662,7 +668,8 @@ fn cgroup_drill(f: &mut Frame, area: Rect, app: &mut App) {
         ),
         Span::raw(format!(
             " current {} · {} procs in subtree · limit {} · psi {:.1}/{:.1}% ",
-            cg.map(|c| fmt_kb(c.current_kb)).unwrap_or_else(|| "—".into()),
+            cg.map(|c| fmt_kb(c.current_kb))
+                .unwrap_or_else(|| "—".into()),
             members.len(),
             cg.and_then(|c| c.limit_kb)
                 .map(fmt_kb)
@@ -782,7 +789,13 @@ fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
     }
 
     let visible = app.visible_cgroups();
-    let max_cur = snap.cgroups.iter().map(|c| c.current_kb).max().unwrap_or(1).max(1);
+    let max_cur = snap
+        .cgroups
+        .iter()
+        .map(|c| c.current_kb)
+        .max()
+        .unwrap_or(1)
+        .max(1);
     let rows: Vec<Row> = visible
         .iter()
         .enumerate()
@@ -854,7 +867,11 @@ fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
         " cgroups  sort {} {}  filter {}  ({} of {}) ",
         app.cgroup_sort.label(),
         if app.desc { "↓" } else { "↑" },
-        if app.filter.is_empty() { "-" } else { app.filter.as_str() },
+        if app.filter.is_empty() {
+            "-"
+        } else {
+            app.filter.as_str()
+        },
         visible.len(),
         snap.cgroups.len()
     );
@@ -966,46 +983,46 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
         .map(|(i, row)| {
             let selected = i == app.detail_sel;
             match row {
-            DetailRow::Group(g) => {
-                let frac = g.pss_kb as f64 / max_pss as f64;
-                let marker = if g.vmas.is_empty() {
-                    "  "
-                } else if app.expanded.contains(&g.label) {
-                    "▾ "
-                } else {
-                    "▸ "
-                };
-                Row::new(vec![
-                    Cell::from(truncate(&format!("{marker}{}", g.label), 44)),
-                    Cell::from(format!("{:>9}", fmt_kb(g.pss_kb))),
-                    Cell::from(format!("{:>9}", fmt_kb(g.uss_kb))),
-                    Cell::from(format!("{:>9}", fmt_kb(g.anon_kb))),
-                    Cell::from(format!("{:>9}", fmt_kb(g.swap_kb))),
-                    Cell::from(format!("{:>9}", fmt_kb(g.size_kb))),
-                    Cell::from(format!("{:>5}", g.count)),
-                    split_cell_scaled(g.uss_kb, g.pss_kb.saturating_sub(g.uss_kb), frac),
-                ])
-            }
-            DetailRow::Vma(g, v) => {
-                // Scale inside the group: a 2 MB VMA next to a 234 MB group
-                // would otherwise round to zero cells.
-                let denom = g.vmas.first().map(|v| v.pss_kb).unwrap_or(1).max(1);
-                let frac = v.pss_kb as f64 / denom as f64;
-                let vma_dim = Style::new().fg(dim(selected));
-                Row::new(vec![
-                    Cell::from(Text::from(Span::styled(
-                        truncate(&format!("    {:x}-{:x} {}", v.start, v.end, v.perms), 44),
-                        vma_dim,
-                    ))),
-                    Cell::from(format!("{:>9}", fmt_kb(v.pss_kb))),
-                    Cell::from(format!("{:>9}", fmt_kb(v.uss_kb))),
-                    Cell::from(format!("{:>9}", fmt_kb(v.anon_kb))),
-                    Cell::from(format!("{:>9}", fmt_kb(v.swap_kb))),
-                    Cell::from(format!("{:>9}", fmt_kb(v.size_kb))),
-                    Cell::from(""),
-                    split_cell_scaled(v.uss_kb, v.pss_kb.saturating_sub(v.uss_kb), frac),
-                ])
-            }
+                DetailRow::Group(g) => {
+                    let frac = g.pss_kb as f64 / max_pss as f64;
+                    let marker = if g.vmas.is_empty() {
+                        "  "
+                    } else if app.expanded.contains(&g.label) {
+                        "▾ "
+                    } else {
+                        "▸ "
+                    };
+                    Row::new(vec![
+                        Cell::from(truncate(&format!("{marker}{}", g.label), 44)),
+                        Cell::from(format!("{:>9}", fmt_kb(g.pss_kb))),
+                        Cell::from(format!("{:>9}", fmt_kb(g.uss_kb))),
+                        Cell::from(format!("{:>9}", fmt_kb(g.anon_kb))),
+                        Cell::from(format!("{:>9}", fmt_kb(g.swap_kb))),
+                        Cell::from(format!("{:>9}", fmt_kb(g.size_kb))),
+                        Cell::from(format!("{:>5}", g.count)),
+                        split_cell_scaled(g.uss_kb, g.pss_kb.saturating_sub(g.uss_kb), frac),
+                    ])
+                }
+                DetailRow::Vma(g, v) => {
+                    // Scale inside the group: a 2 MB VMA next to a 234 MB group
+                    // would otherwise round to zero cells.
+                    let denom = g.vmas.first().map(|v| v.pss_kb).unwrap_or(1).max(1);
+                    let frac = v.pss_kb as f64 / denom as f64;
+                    let vma_dim = Style::new().fg(dim(selected));
+                    Row::new(vec![
+                        Cell::from(Text::from(Span::styled(
+                            truncate(&format!("    {:x}-{:x} {}", v.start, v.end, v.perms), 44),
+                            vma_dim,
+                        ))),
+                        Cell::from(format!("{:>9}", fmt_kb(v.pss_kb))),
+                        Cell::from(format!("{:>9}", fmt_kb(v.uss_kb))),
+                        Cell::from(format!("{:>9}", fmt_kb(v.anon_kb))),
+                        Cell::from(format!("{:>9}", fmt_kb(v.swap_kb))),
+                        Cell::from(format!("{:>9}", fmt_kb(v.size_kb))),
+                        Cell::from(""),
+                        split_cell_scaled(v.uss_kb, v.pss_kb.saturating_sub(v.uss_kb), frac),
+                    ])
+                }
             }
         })
         .collect();
@@ -1052,7 +1069,11 @@ fn footer(f: &mut Frame, area: Rect, app: &App) {
     let line = if app.editing {
         Line::from(vec![
             Span::styled(
-                if app.editing_detail { " vma filter: " } else { " filter: " },
+                if app.editing_detail {
+                    " vma filter: "
+                } else {
+                    " filter: "
+                },
                 Style::new().fg(Color::Yellow),
             ),
             Span::raw(app.edit_buf.clone()),

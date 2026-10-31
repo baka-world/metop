@@ -125,9 +125,7 @@ fn main() -> ExitCode {
     }
 
     if let Some((a_path, b_path)) = diff {
-        let read = |p: &str| {
-            std::fs::read_to_string(p).map_err(|e| format!("{p}: {e}"))
-        };
+        let read = |p: &str| std::fs::read_to_string(p).map_err(|e| format!("{p}: {e}"));
         let text = read(&a_path)
             .and_then(|a| Ok((a, read(&b_path)?)))
             .and_then(|(a, b)| mtop::diff::render(&a, &b, &diff_opts));

@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: fmt + clippy + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Lint
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Test
+        run: cargo test --release --locked
+
+  build:
+    name: build (x86_64-musl)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --release --locked --target x86_64-unknown-linux-musl
+
+      - name: Smoke test the binary
+        run: |
+          set -euo pipefail
+          bin=target/x86_64-unknown-linux-musl/release/mtop
+          "$bin" --version
+          "$bin" --json --fields sampling,procs.pid > /tmp/snapshot.json
+          python3 - <<'PY'
+          import json
+          d = json.load(open("/tmp/snapshot.json"))
+          assert d["procs"], "no processes in the snapshot"
+          assert d["sampling"]["procs"] >= len(d["procs"]) - 5
+          print(f"snapshot ok: {len(d['procs'])} procs, covered={d['sampling']['covered']}")
+          PY

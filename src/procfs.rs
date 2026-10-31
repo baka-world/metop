@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use procfs::process::{all_processes, MMapPath, Process};
+use procfs::process::{MMapPath, Process, all_processes};
 use procfs::{Current, Meminfo};
 
 /// Memory page size, in bytes.
