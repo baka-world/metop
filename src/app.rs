@@ -7,9 +7,16 @@ use ratatui::widgets::TableState;
 use ratatui::DefaultTerminal;
 
 use crate::model::{Focus, ProcRow, Snapshot, SortKey};
+use crate::procfs::{Vma, VmaGroup};
 use crate::ui;
 
 pub const HISTORY: usize = 120;
+
+/// A row in the detail view: either an aggregated mapping or one VMA inside it.
+pub enum DetailRow<'a> {
+    Group(&'a VmaGroup),
+    Vma(&'a VmaGroup, &'a Vma),
+}
 
 pub struct App {
     pub sort: SortKey,
@@ -17,6 +24,8 @@ pub struct App {
     pub filter: String,
     /// Mapping-name filter for the VMA detail view (independent of `filter`).
     pub detail_filter: String,
+    /// Group labels whose VMAs are expanded.
+    pub expanded: std::collections::HashSet<String>,
     pub editing: bool,
     /// Whether the in-progress edit targets the detail filter.
     pub editing_detail: bool,
@@ -31,6 +40,7 @@ pub struct App {
     last_sent: Option<(Option<u32>, bool)>,
     started: bool,
     pending_focus: Option<u32>,
+    detail_pid: Option<u32>,
 }
 
 impl App {
@@ -40,6 +50,7 @@ impl App {
             desc: true,
             filter: String::new(),
             detail_filter: String::new(),
+            expanded: std::collections::HashSet::new(),
             editing: false,
             editing_detail: false,
             edit_buf: String::new(),
@@ -53,6 +64,7 @@ impl App {
             last_sent: None,
             started: false,
             pending_focus: None,
+            detail_pid: None,
         };
         if let Some(pid) = start_pid {
             app.pending_focus = Some(pid);
@@ -160,6 +172,13 @@ impl App {
         }
         self.history.retain(|pid, _| seen.contains(pid));
         self.snap = Some(snap);
+        // A different process means a different mapping tree: reset expansion.
+        let pid = self.snap.as_ref().and_then(|s| s.detail.as_ref()).map(|d| d.pid);
+        if pid != self.detail_pid {
+            self.detail_pid = pid;
+            self.expanded.clear();
+            self.detail_sel = 0;
+        }
         if let Some(pid) = self.pending_focus
             && let Some(i) = self.visible().iter().position(|r| r.pid == pid)
         {
@@ -169,20 +188,38 @@ impl App {
         self.clamp();
     }
 
-    /// Number of VMA groups currently visible under `detail_filter`.
-    pub fn detail_len(&self) -> usize {
+    /// Flattened detail rows: every matching group, followed by its VMAs when
+    /// expanded. Selection indexes into this vector.
+    pub fn detail_rows(&self) -> Vec<DetailRow<'_>> {
         let needle = self.detail_filter.to_lowercase();
-        self.snap
-            .as_ref()
-            .and_then(|s| s.detail.as_ref())
-            .map(|d| {
-                d.report
-                    .groups
-                    .iter()
-                    .filter(|g| needle.is_empty() || g.label.to_lowercase().contains(&needle))
-                    .count()
-            })
-            .unwrap_or(0)
+        let Some(d) = self.snap.as_ref().and_then(|s| s.detail.as_ref()) else {
+            return Vec::new();
+        };
+        let mut out = Vec::with_capacity(d.report.groups.len());
+        for g in &d.report.groups {
+            if !needle.is_empty() && !g.label.to_lowercase().contains(&needle) {
+                continue;
+            }
+            out.push(DetailRow::Group(g));
+            if self.expanded.contains(&g.label) {
+                out.extend(g.vmas.iter().map(|v| DetailRow::Vma(g, v)));
+            }
+        }
+        out
+    }
+
+    pub fn detail_len(&self) -> usize {
+        self.detail_rows().len()
+    }
+
+    fn toggle_expand(&mut self) {
+        let label = match self.detail_rows().get(self.detail_sel) {
+            Some(DetailRow::Group(g)) => g.label.clone(),
+            _ => return,
+        };
+        if !self.expanded.remove(&label) {
+            self.expanded.insert(label);
+        }
     }
 
     fn clamp(&mut self) {
@@ -227,13 +264,20 @@ impl App {
                     self.filter.clone()
                 };
             }
-            KeyCode::Enter => {
+            KeyCode::Enter | KeyCode::Char(' ') => {
                 if self.detail {
-                    self.detail = false;
-                    self.detail_sel = 0;
+                    // Enter expands a mapping into its individual VMAs; Esc is
+                    // the way back (standard tree navigation).
+                    self.toggle_expand();
                 } else if self.selected_pid().is_some() {
                     self.detail = true;
                     self.detail_sel = 0;
+                }
+            }
+            KeyCode::Char('z') if self.detail => self.expanded.clear(),
+            KeyCode::Char('Z') if self.detail => {
+                if let Some(d) = self.snap.as_ref().and_then(|s| s.detail.as_ref()) {
+                    self.expanded.extend(d.report.groups.iter().map(|g| g.label.clone()));
                 }
             }
             KeyCode::Esc => {

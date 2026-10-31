@@ -25,12 +25,22 @@ cargo build --release
 ./target/release/mtop --pid 1234 # 启动即选中某个进程
 ./target/release/mtop --json     # 一次性快照（可 diff、可 jq）
 ./target/release/mtop --json --pid 1234   # 附带该进程的 VMA 明细
+mtop --diff a.json b.json        # 比较两份快照，按 |ΔRSS| 排序
 ```
 
 ```sh
 mtop --json > a.json; sleep 30; mtop --json > b.json
-jq -r '.procs[] | select(.pss.pss_kb > 100000) | "\(.pid) \(.comm) \(.pss.pss_kb)"' b.json
+mtop --diff a.json b.json
 ```
+
+```
+mtop diff  over 4s  (437 -> 438 procs)   15 grew, 3 shrank, 1 new, 0 gone
+     PID COMM                          ΔRSS      ΔPSS   RSS now   PSS now  note
+  613254 chrome                       -1.2M     -1.2M      348M      171M
+    2796 gnome-shell                  +0.2M     +0.2M      288M      235M
+```
+
+写快照的那个 `mtop` 进程会被记录为 `self_pid` 并在 diff 中自动排除——否则每次运行都是"new 3 MB / gone 3 MB"的假噪声。
 
 ## 按键
 
@@ -40,8 +50,9 @@ jq -r '.procs[] | select(.pss.pss_kb > 100000) | "\(.pid) \(.comm) \(.pss.pss_kb
 | `g`/`G` | 顶 / 底 |
 | `s` / `r` | 切换排序键 / 反向 |
 | `f` | 过滤（进程名子串或 PID 前缀）；详情页中过滤映射名 |
-| `Enter` | 进入 / 退出 VMA 详情 |
-| `Esc` | 返回 / 清除过滤 |
+| `Enter` | 进入详情；在详情内展开/收起当前映射（逐 VMA） |
+| `z` / `Z`（详情） | 全部收起 / 全部展开 |
+| `Esc` | 清除过滤 / 返回 |
 | `q` | 退出 |
 
 ## 设计要点
@@ -77,4 +88,5 @@ cargo test --release
 ```
 
 - `tests/procfs.rs`：对真实 `/proc` 的不变量（PSS ≤ RSS、分组求和、meminfo 单位、statm 与 rollup 一致性）
-- `tests/render.rs`：`TestBackend` 把 TUI 渲染成纯文本后断言列、排序、截断、`—`、覆盖率、详情聚合、按键边界
+- `tests/render.rs`：`TestBackend` 把 TUI 渲染成纯文本后断言列、排序、截断、`—`、覆盖率、详情聚合、展开、按键边界
+- `tests/json.rs` / `tests/diff.rs`：通过真实二进制校验快照与 diff 的对外契约
