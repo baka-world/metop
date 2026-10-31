@@ -25,7 +25,113 @@ fn rollup_json(r: &Rollup) -> Value {
     })
 }
 
-pub fn snapshot_json(snap: &Snapshot) -> String {
+/// Keep only the requested dotted paths, e.g. `procs.pid, procs.pss.pss_kb`.
+/// `schema` and `at_unix_ms` are always kept: a document without them cannot be
+/// identified or ordered.
+pub fn render(snap: &Snapshot, fields: &[String]) -> Result<String, String> {
+    let doc = build_doc(snap);
+    if fields.is_empty() {
+        return Ok(pretty(&doc));
+    }
+    let mut paths: Vec<Vec<String>> = Vec::with_capacity(fields.len());
+    for raw in fields {
+        let path: Vec<String> = raw
+            .split('.')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect();
+        if path.is_empty() {
+            return Err(format!("empty field path {raw:?}"));
+        }
+        if !exists(&doc, &path) {
+            return Err(format!(
+                "unknown field path {raw:?}; top-level keys are: {}",
+                doc.as_object()
+                    .map(|m| m.keys().cloned().collect::<Vec<_>>().join(", "))
+                    .unwrap_or_default()
+            ));
+        }
+        paths.push(path);
+    }
+    let projected = project(&doc, &paths);
+    Ok(pretty(&projected))
+}
+
+fn pretty(value: &Value) -> String {
+    serde_json::to_string_pretty(value).unwrap_or_else(|_| "{}".into())
+}
+
+fn exists(value: &Value, path: &[String]) -> bool {
+    let Some(first) = path.first() else {
+        return true;
+    };
+    match value {
+        Value::Object(map) => map.get(first).is_some_and(|v| exists(v, &path[1..])),
+        // Every element is a record; the path applies to each of them.
+        Value::Array(items) => items.iter().any(|item| exists(item, path)),
+        // A null section (e.g. `detail` without --pid) is allowed: the caller
+        // asked for a path that would exist once there is data.
+        Value::Null => true,
+        _ => false,
+    }
+}
+
+#[derive(Default)]
+struct Field {
+    whole: bool,
+    children: std::collections::BTreeMap<String, Field>,
+}
+
+fn build_trie(paths: &[Vec<String>]) -> Field {
+    let mut root = Field::default();
+    for path in paths {
+        let mut node = &mut root;
+        for seg in path {
+            node = node.children.entry(seg.clone()).or_default();
+        }
+        node.whole = true;
+    }
+    root
+}
+
+fn project_with(value: &Value, field: &Field) -> Value {
+    if field.whole {
+        return value.clone();
+    }
+    match value {
+        Value::Object(map) => {
+            let mut out = serde_json::Map::new();
+            for (key, child) in &field.children {
+                if let Some(v) = map.get(key) {
+                    out.insert(key.clone(), project_with(v, child));
+                }
+            }
+            Value::Object(out)
+        }
+        // The path applies to every record in the array.
+        Value::Array(items) => {
+            Value::Array(items.iter().map(|item| project_with(item, field)).collect())
+        }
+        other => other.clone(),
+    }
+}
+
+fn project(doc: &Value, paths: &[Vec<String>]) -> Value {
+    let mut out = project_with(doc, &build_trie(paths));
+    if let Value::Object(map) = &mut out {
+        for key in ["schema", "at_unix_ms"] {
+            if !map.contains_key(key)
+                && let Some(v) = doc.get(key)
+            {
+                map.insert(key.to_string(), v.clone());
+            }
+        }
+    }
+    out
+}
+
+fn build_doc(snap: &Snapshot) -> Value {
     let now_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
@@ -115,11 +221,7 @@ pub fn snapshot_json(snap: &Snapshot) -> String {
         "detail": detail,
         "procs": procs,
     });
-    serde_json::to_string_pretty(&doc).unwrap_or_else(|_| "{}".into())
-}
-
-pub fn write_json(snap: &Snapshot) -> std::io::Result<()> {
-    write_str(&snapshot_json(snap))
+    doc
 }
 
 pub fn write_str(text: &str) -> std::io::Result<()> {
@@ -129,4 +231,67 @@ pub fn write_str(text: &str) -> std::io::Result<()> {
         out.write_all(b"\n")?;
     }
     out.flush()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn doc() -> Value {
+        json!({
+            "schema": "mtop.snapshot.v1",
+            "at_unix_ms": 42,
+            "mem": {"total_kb": 1, "avail_kb": 2},
+            "procs": [
+                {"pid": 7, "comm": "a", "rss_kb": 10, "pss": {"pss_kb": 5, "uss_kb": 4}},
+                {"pid": 8, "comm": "b", "rss_kb": 20, "pss": null}
+            ]
+        })
+    }
+
+    fn project_str(fields: &[&str]) -> Value {
+        let paths: Vec<Vec<String>> = fields
+            .iter()
+            .map(|f| f.split('.').map(str::to_string).collect())
+            .collect();
+        project(&doc(), &paths)
+    }
+
+    #[test]
+    fn flat_and_nested_paths_are_projected_per_record() {
+        let out = project_str(&["procs.pid", "procs.pss.pss_kb"]);
+        let procs = out["procs"].as_array().unwrap();
+        assert_eq!(procs[0], json!({"pid": 7, "pss": {"pss_kb": 5}}));
+        // A null section stays null instead of turning into an empty object.
+        assert_eq!(procs[1], json!({"pid": 8, "pss": null}));
+        assert!(out.get("mem").is_none(), "unselected section leaked");
+    }
+
+    #[test]
+    fn meta_keys_are_always_kept() {
+        let out = project_str(&["mem.total_kb"]);
+        assert_eq!(out["schema"], "mtop.snapshot.v1");
+        assert_eq!(out["at_unix_ms"], 42);
+        assert_eq!(out["mem"], json!({"total_kb": 1}));
+    }
+
+    #[test]
+    fn a_whole_section_path_keeps_it_intact() {
+        let out = project_str(&["mem"]);
+        assert_eq!(out["mem"], doc()["mem"]);
+    }
+
+    #[test]
+    fn validation_rejects_typos_but_allows_null_sections() {
+        let d = doc();
+        let path = |s: &str| -> Vec<String> { s.split('.').map(str::to_string).collect() };
+        assert!(exists(&d, &path("procs.pid")));
+        assert!(exists(&d, &path("procs.pss.uss_kb")));
+        assert!(!exists(&d, &path("procs.nope")));
+        assert!(!exists(&d, &path("nope")));
+        // `detail` is null without --pid; asking for its fields is valid.
+        let with_null = json!({"schema": "x", "detail": null});
+        assert!(exists(&with_null, &path("detail.pid")));
+    }
 }

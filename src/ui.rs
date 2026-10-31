@@ -11,6 +11,29 @@ use crate::procfs::fmt_kb;
 const SHARE_W: usize = 6;
 const MIX_W: usize = 12;
 
+const SPARK_LEVELS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+
+/// Text sparkline: no widget needed, and it can be asserted as a string.
+pub fn text_spark(values: &[u64], width: usize) -> String {
+    if values.is_empty() || width == 0 {
+        return String::new();
+    }
+    let start = values.len().saturating_sub(width);
+    let slice = &values[start..];
+    let max = slice.iter().copied().max().unwrap_or(0);
+    slice
+        .iter()
+        .map(|v| {
+            let idx = if max == 0 {
+                0
+            } else {
+                ((*v as f64 / max as f64) * 7.0).round() as usize
+            };
+            SPARK_LEVELS[idx.min(7)]
+        })
+        .collect()
+}
+
 /// Keep the tail of a path: "/user.slice/…/app.slice/terminal.scope" is far
 /// more useful than "/user.slice/user-1000.slice/user@1000.serv…".
 fn truncate_left(s: &str, n: usize) -> String {
@@ -447,7 +470,7 @@ fn cgroup_drill(f: &mut Frame, area: Rect, app: &mut App) {
     };
     let members = app.cgroup_members();
     let cg = snap.cgroups.iter().find(|c| c.path == path);
-    let chunks = Layout::vertical([Constraint::Length(2), Constraint::Min(4)]).split(area);
+    let chunks = Layout::vertical([Constraint::Length(3), Constraint::Min(4)]).split(area);
 
     let summary = Line::from(vec![
         Span::styled(
@@ -465,8 +488,23 @@ fn cgroup_drill(f: &mut Frame, area: Rect, app: &mut App) {
             cg.map(|c| c.psi_full10).unwrap_or(0.0)
         )),
     ]);
+    let oom_hist: Vec<u64> = app
+        .oom_history
+        .get(&path)
+        .map(|h| h.iter().copied().collect())
+        .unwrap_or_default();
+    let oom_window: u64 = oom_hist.iter().sum();
+    let total_kills = cg.map(|c| c.oom_kills).unwrap_or(0);
+    let oom_line = Line::from(vec![
+        Span::styled("oom ", Style::new().fg(Color::DarkGray)),
+        Span::styled(text_spark(&oom_hist, 60), Style::new().fg(Color::Red)),
+        Span::raw(format!(
+            "  {total_kills} total · +{oom_window} in last {} scans",
+            oom_hist.len()
+        )),
+    ]);
     f.render_widget(
-        Paragraph::new(summary).block(Block::new().borders(Borders::BOTTOM)),
+        Paragraph::new(vec![summary, oom_line]).block(Block::new().borders(Borders::BOTTOM)),
         chunks[0],
     );
 
@@ -880,6 +918,16 @@ mod tests {
             let w = segments(&values, 12);
             assert_eq!(w.iter().sum::<usize>(), 12, "{values:?} -> {w:?}");
         }
+    }
+
+    #[test]
+    fn text_spark_renders_a_normalised_series() {
+        assert_eq!(super::text_spark(&[0, 0, 4, 0], 4), "▁▁█▁");
+        assert_eq!(super::text_spark(&[2, 3], 2), "▆█");
+        assert_eq!(super::text_spark(&[1, 1, 1], 3), "███");
+        assert!(super::text_spark(&[], 5).is_empty());
+        // Only the last `width` samples are drawn.
+        assert_eq!(super::text_spark(&[9, 0, 0, 1], 3), "▁▁█");
     }
 
     #[test]

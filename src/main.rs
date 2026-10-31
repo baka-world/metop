@@ -9,12 +9,14 @@ mtop - Linux memory analysis TUI
 
 USAGE:
     mtop [--pid PID]
-    mtop --json [--pid PID]
+    mtop --json [--pid PID] [--fields procs.pid,procs.rss_kb]
     mtop --diff A.json B.json [--min-delta 50M] [--top 20]
 
 OPTIONS:
     -p, --pid PID   start with PID selected (also enables Enter drill-down)
         --json      print one snapshot as JSON and exit (diffable; no TUI)
+        --fields P  comma-separated dotted paths to keep, e.g.
+                    procs.pid,procs.comm,procs.pss.pss_kb (schema/at always kept)
         --diff A B  compare two --json snapshots, print what changed and exit
         --min-delta SIZE  hide diff rows below this |ΔRSS| (50M, 512k, 2G)
         --top N           how many diff rows to print (default 30)
@@ -33,6 +35,7 @@ KEYS:
 fn main() -> ExitCode {
     let mut start_pid = None;
     let mut json_out = false;
+    let mut fields: Vec<String> = Vec::new();
     let mut diff: Option<(String, String)> = None;
     let mut diff_opts = mtop::diff::Opts::default();
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -54,6 +57,27 @@ fn main() -> ExitCode {
                 return ExitCode::SUCCESS;
             }
             "--json" => json_out = true,
+            "--fields" => {
+                i += 1;
+                match args.get(i) {
+                    Some(list) => {
+                        fields = list
+                            .split(',')
+                            .map(str::trim)
+                            .filter(|s| !s.is_empty())
+                            .map(str::to_string)
+                            .collect();
+                        if fields.is_empty() {
+                            eprintln!("mtop: --fields needs at least one path");
+                            return ExitCode::from(2);
+                        }
+                    }
+                    None => {
+                        eprintln!("mtop: --fields needs a comma-separated list");
+                        return ExitCode::from(2);
+                    }
+                }
+            }
             "--min-delta" => {
                 i += 1;
                 match args.get(i).and_then(|s| mtop::diff::parse_size(s)) {
@@ -126,7 +150,14 @@ fn main() -> ExitCode {
     if json_out {
         // Detail is only worth serializing when a pid was explicitly asked for.
         let snap = sampler::snapshot_once(start_pid, start_pid.is_some());
-        return match mtop::json::write_json(&snap) {
+        let text = match mtop::json::render(&snap, &fields) {
+            Ok(text) => text,
+            Err(e) => {
+                eprintln!("mtop: {e}");
+                return ExitCode::from(2);
+            }
+        };
+        return match mtop::json::write_str(&text) {
             Ok(()) => ExitCode::SUCCESS,
             // `mtop --json | head` is normal usage, not an error.
             Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => ExitCode::SUCCESS,
