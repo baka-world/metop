@@ -319,18 +319,20 @@ fn pss_mix_bar_has_distinct_segment_colors() {
     term.draw(|f| mtop::ui::draw(f, &mut app)).unwrap();
     let buf = term.backend().buffer();
 
+    // Row 0 (chrome) is selected and therefore intentionally colourless; the
+    // mix bar must still be coloured on ordinary rows.
     let mut y_row = None;
     for y in 0..buf.area.height {
         let mut line = String::new();
         for x in 0..buf.area.width {
             line.push_str(buf[(x, y)].symbol());
         }
-        if line.contains("chrome") && line.contains('█') {
+        if line.contains("node") && line.contains('█') {
             y_row = Some(y);
             break;
         }
     }
-    let y = y_row.expect("chrome row with a bar");
+    let y = y_row.expect("unselected row with a bar");
     let colors: std::collections::HashSet<String> = (0..buf.area.width)
         .map(|x| &buf[(x, y)])
         .filter(|c| c.symbol() == "█")
@@ -500,3 +502,68 @@ fn cgroup_psi_history_is_recorded_and_plotted() {
     let text = render(&mut app);
     assert!(text.contains("psi 7.5%"), "psi trend label missing:\n{text}");
 }
+
+/// Selected rows must use one explicit highlight colour pair everywhere.
+/// Reverse video is deliberately not used: it swaps the terminal's default
+/// fg/bg, which draws text in the background colour on some palettes.
+fn selected_row_styles(app: &mut App) -> Vec<(ratatui::style::Color, ratatui::style::Color)> {
+    let mut term = Terminal::new(TestBackend::new(120, 26)).unwrap();
+    term.draw(|f| mtop::ui::draw(f, app)).unwrap();
+    let buf = term.backend().buffer();
+    let y = (0..buf.area.height)
+        .find(|y| (0..buf.area.width).any(|x| buf[(x, *y)].symbol() == "▸"))
+        .expect("a selected row");
+    (0..buf.area.width)
+        .map(|x| (buf[(x, y)].fg, buf[(x, y)].bg))
+        .collect()
+}
+
+#[test]
+fn selected_rows_use_one_highlight_pair() {
+    use mtop::ui::{HL_BG, HL_FG};
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    let mut app = App::new(None);
+    app.on_snapshot(snapshot());
+
+    let procs = selected_row_styles(&mut app);
+    let highlighted = procs.iter().filter(|(_, bg)| *bg == HL_BG).count();
+    assert!(highlighted > 60, "selected row background missing ({highlighted} cells)");
+    let wrong: Vec<_> = procs
+        .iter()
+        .filter(|(_, bg)| *bg == HL_BG)
+        .filter(|(fg, _)| *fg != HL_FG)
+        .collect();
+    assert!(wrong.is_empty(), "cells on the selected row keep their own colour: {wrong:?}");
+
+    app.on_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    let cgroups = selected_row_styles(&mut app);
+    let highlighted = cgroups.iter().filter(|(_, bg)| *bg == HL_BG).count();
+    assert!(highlighted > 60, "cgroup selected row background missing");
+    assert!(cgroups.iter().all(|(fg, bg)| *bg != HL_BG || *fg == HL_FG));
+}
+
+#[test]
+fn highlight_never_falls_back_to_the_terminal_background() {
+    use mtop::ui::{HL_BG, HL_FG};
+    use ratatui::style::{Color, Modifier};
+
+    assert_ne!(HL_BG, Color::Reset, "highlight must not inherit the background");
+    assert_ne!(HL_BG, Color::Black, "black on a dark terminal is invisible");
+    assert_ne!(HL_FG, HL_BG);
+
+    let mut app = App::new(None);
+    app.on_snapshot(snapshot());
+    let mut term = Terminal::new(TestBackend::new(120, 26)).unwrap();
+    term.draw(|f| mtop::ui::draw(f, &mut app)).unwrap();
+    let buf = term.backend().buffer();
+    let y = (0..buf.area.height)
+        .find(|y| (0..buf.area.width).any(|x| buf[(x, *y)].symbol() == "▸"))
+        .expect("a selected row");
+    // Reverse video must not be used at all on the row.
+    assert!(
+        (0..buf.area.width).all(|x| !buf[(x, y)].modifier.contains(Modifier::REVERSED)),
+        "selected row still relies on reverse video"
+    );
+}
+
