@@ -1,0 +1,99 @@
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
+
+use crate::procfs::{MemInfo, SmapsReport};
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SortKey {
+    Rss,
+    Pss,
+    Uss,
+    Delta,
+    Ratio,
+    Pid,
+    Comm,
+}
+
+impl SortKey {
+    pub const ALL: [SortKey; 7] = [
+        SortKey::Rss,
+        SortKey::Pss,
+        SortKey::Uss,
+        SortKey::Delta,
+        SortKey::Ratio,
+        SortKey::Pid,
+        SortKey::Comm,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SortKey::Rss => "RSS",
+            SortKey::Pss => "PSS",
+            SortKey::Uss => "USS",
+            SortKey::Delta => "DELTA",
+            SortKey::Ratio => "PSS/RSS",
+            SortKey::Pid => "PID",
+            SortKey::Comm => "COMM",
+        }
+    }
+
+    pub fn next(self) -> SortKey {
+        let i = Self::ALL.iter().position(|k| *k == self).unwrap_or(0);
+        Self::ALL[(i + 1) % Self::ALL.len()]
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ProcRow {
+    pub pid: u32,
+    pub comm: String,
+    /// kB, from statm (cheap, every tick).
+    pub rss_kb: u64,
+    /// MB/s-ish: kB change since previous sweep.
+    pub delta_kb: i64,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct PssInfo {
+    pub rollup: crate::procfs::Rollup,
+    pub at: Instant,
+}
+
+#[derive(Clone, Debug)]
+pub struct Detail {
+    pub pid: u32,
+    pub comm: String,
+    pub cmdline: String,
+    pub report: SmapsReport,
+    pub parse_ms: f32,
+    pub at: Instant,
+}
+
+#[derive(Clone, Debug)]
+pub struct Snapshot {
+    pub rows: Vec<ProcRow>,
+    /// Only pids the sampler has spent page-table-walk budget on.
+    pub pss: HashMap<u32, PssInfo>,
+    pub mem: MemInfo,
+    pub detail: Option<Detail>,
+    /// Why the detail view is empty (usually EACCES on a process we don't own).
+    pub detail_error: Option<String>,
+    pub sweep_ms: f32,
+    pub pss_ms: f32,
+    /// Sum of PSS for entries younger than PSS_MAX_AGE, and how many that is.
+    pub covered_pss_kb: u64,
+    pub covered: usize,
+    pub at: Instant,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum Focus {
+    Set { pid: Option<u32>, want_detail: bool },
+}
+
+/// A cached rollup younger than this is shown as authoritative (dimmed past it).
+pub const PSS_MAX_AGE: Duration = Duration::from_millis(6000);
+/// Never re-walk a process's page table more often than this, unless focused.
+/// With ~465 pids a full set costs ~700 ms, so the 150 ms/tick budget refreshes
+/// everything about every 5 s — stale numbers, not missing ones.
+pub const PSS_REFRESH_AFTER: Duration = Duration::from_millis(2000);

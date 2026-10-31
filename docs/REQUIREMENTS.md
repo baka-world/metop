@@ -1,0 +1,101 @@
+# mtop 需求与设计约束
+
+Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重复计算。mtop 的目标只有一个：**让"到底是谁占了内存"这个问题在终端里一次看清**，并且用 PSS/USS 给出不重复计算的答案，再下钻到具体的 VMA。
+
+## 1. 用户与场景
+
+| 场景 | 需要什么 | mtop 的做法 |
+|---|---|---|
+| 服务器内存吃紧，找元凶 | 按真实占用排序，而不是把共享库算 N 遍 | PSS 列 + RSS/PSS 比值 |
+| 容器/桌面里浏览器一堆进程 | 看清同一进程组内的分布 | 进程表 + VMA 映射聚合视图 |
+| 怀疑某个进程泄漏 | 看增长而不是快照 | Δ/s 列 + 焦点进程 RSS 趋势图 |
+| 想知道一个进程的 500 MB 到底在哪 | 按映射聚合，而不是 2000 行 VMA | 按映射名聚合的 PSS/USS 表 |
+
+## 2. 非目标（M1 明确不做）
+
+- 跨平台。只用 `/proc`，Linux only。
+- CPU / 网络 / 磁盘监控。那是 `btm`/`htop` 的活。
+- eBPF、tracepoint、堆分配器插桩。只看内核已有的计数器。
+- 写操作：kill / renice / drop_caches。
+- 常驻 daemon、远程采集、历史持久化。
+- 配置文件。命令行参数 + 按键即可。
+
+## 3. 复用的社区资产（不重复造轮子）
+
+| 项目 | 许可证 | 关系 | 结论 |
+|---|---|---|---|
+| [ratatui](https://github.com/ratatui/ratatui) 0.30.2 | MIT | 依赖 | TUI 框架，pin 死小版本 |
+| [procfs](https://github.com/eminence/procfs) 0.18 | MIT/Apache-2.0 | 依赖 | **全部** `/proc` 解析：`smaps_rollup`、`smaps`（含 `MMapPath` 类型化分类）、`meminfo`、`statm`、`cmdline` |
+| [bottom](https://github.com/ClementTsang/bottom) 14.1k★ | MIT | 架构/交互参考 | 不 fork：它的 `ProcessHarvest` 只有单个 `mem_usage` 字段，加 PSS 要动采集层+列+排序+配置；且带 5 平台与 GPU 配置面 |
+| [jtop-pss](https://crates.io/crates/jtop-pss) 0.5.0-beta | MIT | 同类前作 | 2057 行单文件，已证明 PSS/USS 监控可行；无库 API，只作参考 |
+| [wora-observability-linux-mm](https://crates.io/crates/wora-observability-linux-mm) 0.2.0 | MIT/Apache-2.0 | M2 升级路径 | 类型化的 VMA 元数据、KSM、hugepage、pagemap；M1 不需要 |
+| smem (Python) | GPL-2 | 语义参考 | PSS/USS 的定义与"别把共享页算 N 遍"的教训 |
+
+**复用边界（重要）**：复杂格式（smaps 有 20+ 字段、VMA 头部有 6 段）交给 `procfs`；单行单值的 `statm` 直接读——`procfs::Process::new` 每个 pid 多一次 `openat(O_PATH)`，实测把全系统 sweep 从 15 ms 拉到 43 ms，不值得。
+
+## 4. 功能需求与验收标准
+
+| ID | 需求 | 验收标准 |
+|---|---|---|
+| F1 | 进程表：PID / COMM / RSS / PSS / USS / PSS÷RSS / Δ·s⁻¹ / 占比条 | `tests/render.rs::process_table_renders_sorted_with_pss_gaps_marked` |
+| F2 | 缺失的 PSS 显示 `—`，不显示 0 | 同上（断言存在 `—`） |
+| F3 | 排序：RSS/PSS/USS/Δ/PSS÷RSS/PID/COMM，可反向 | `sort_by_pss_reorders...`、`keyboard_navigation_is_clamped` |
+| F4 | 过滤：按进程名子串或 PID 前缀 | `filter_matches_comm_and_pid` |
+| F5 | 详情：按映射名聚合 PSS/USS/虚拟大小/VMA 数 | `detail_view_shows_grouped_vmas` + 实机端到端（2292 VMAs → 286 组） |
+| F6 | 焦点进程 RSS 趋势 sparkline（120 点） | 实机截图；数据源为 UI 侧环形缓冲 |
+| F7 | 诚实表头：内存用量取自 `/proc/meminfo`；另显示 sweep/pss 耗时、PSS 覆盖率、样本年龄 | 实机帧：`coverage 77/466 = 6.61G` |
+| F8 | 权限失败时显示原因，不显示空面板 | `detail_error` → "vm mappings unavailable / /proc/N/smaps: …" |
+| F9 | `--pid PID` 启动即选中 | 实机：`--pid 579585` → 首行 ▸ chrome |
+
+## 5. 数据来源与精度
+
+| 指标 | 来源 | 公式 | 陷阱 |
+|---|---|---|---|
+| RSS | `/proc/PID/statm` 字段 2 | `pages × page_size` | 计数器口径，与 `smaps_rollup` 的 `Rss:` 可能有几个百分点差异 |
+| PSS | `/proc/PID/smaps_rollup` | 内核按共享页比例分摊 | 需要走页表，代价高 |
+| USS | `smaps_rollup` | `Private_Clean + Private_Dirty` | 不含 `Private_Hugetlb` |
+| anon | `smaps_rollup` | `Anonymous:` | — |
+| 系统内存 | `/proc/meminfo` | `MemTotal - MemAvailable` | **绝不用进程行求和**：PSS 只覆盖一部分进程 |
+| VMA 分组 | `/proc/PID/smaps` | 按 `MMapPath` 聚合 | `Size` 是虚拟大小，含未提交的稀疏映射（见过 100 G 的 `[anon]`） |
+
+`procfs::Meminfo` 的单位是**字节**，UI 用 kB——这条转换有专门的回归测试（`meminfo_is_normalized_to_kb`），因为漏掉 `/1024` 的后果是表头显示 15.7 TB。
+
+## 6. 性能预算（本机实测：8 核 / 15 GiB / 465 个 PID）
+
+| 路径 | 单次 | 频率 | 每次 tick 预算 |
+|---|---|---|---|
+| `statm` + `comm` 全量 sweep | 15–25 ms（负载高时实测 41 ms） | 1 Hz | 25 ms |
+| `smaps_rollup` 单进程 | 1.5 ms 均值，chrome 16–19 ms | 受限轮转 | 150 ms |
+| `smaps` 全量（2292 VMA） | 31–42 ms 裸解析，65 ms 经 `procfs` | 焦点进程，2 s 一次 | 33 ms 摊销 |
+| `/proc/meminfo` | <1 ms | 5 s 一次 | ~0 |
+
+稳态开销约 **200–250 ms/s ≈ 一个核的 20–25%**（最坏情况）。这不是"性能优化没做"，而是"读页表本身就是被测系统的负载"——所以 `smaps_rollup` 必须受预算约束，`smaps` 必须按需。预算常量在 `src/sampler.rs`：`PSS_BUDGET`、`PSS_MAX_AGE`、`DETAIL_MAX_AGE`。
+
+## 7. 交互契约
+
+| 按键 | 行为 |
+|---|---|
+| `j`/`k`、`↑`/`↓` | 移动选择（详情视图内滚动映射） |
+| `PgUp`/`PgDn` | 翻 10 行 |
+| `g`/`G`、`Home`/`End` | 顶部 / 底部 |
+| `s` | 循环排序键（重置选择） |
+| `r` | 反向排序 |
+| `f` | 过滤输入；`Enter` 应用，`Esc` 取消 |
+| `Enter` | 进入 VMA 详情 / 返回 |
+| `Esc` | 返回 / 清除过滤 |
+| `q`、`Ctrl-C` | 退出 |
+
+## 8. 已知风险
+
+1. **PSS 覆盖不全**：预算内只刷新可见区，覆盖率见表头。按 PSS 排序时未覆盖行参与排序即为 0——M2 要给"按 PSS 排序"单独提高预算或只对窗口内排序。
+2. **测量即扰动**：读 `smaps` 会拿 `mmap_lock` 走页表，对大进程有明显内核开销；因此详情页不随 tick 刷新。
+3. **权限**：非本用户进程的 `smaps` 可能 `EACCES`，详情页会显示原因。
+4. **PID 复用**：扫描期间进程退出/复用 PID，某一行可能短暂混合两个进程的数据。
+5. **内核线程**：`smaps_rollup` 为空，PSS 显示 `—`，不是 0。
+6. **ratatui 0.30 拆包后的 API 漂移**：`Cargo.toml` 用 `=0.30.2` 锁定，升级需单独评估。
+
+## 9. 里程碑
+
+- **M1（当前）**：两层采样 + 进程表 + VMA 聚合详情 + 趋势 + 过滤/排序 + 12 个测试 + 实机验证。
+- **M2**：按 PSS 排序的覆盖率策略；VMA 行可选/可过滤；KSM、hugepage、swap-pss 列（走 `wora-observability-linux-mm`）；快照导出 JSON 以便 diff。
+- **M3**：`--json` 脚本模式；cgroup/容器聚合；两次快照对比视图。
