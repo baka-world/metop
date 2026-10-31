@@ -18,6 +18,7 @@ OPTIONS:
         --diff A B  compare two --json snapshots, print what changed and exit
         --min-delta SIZE  hide diff rows below this |ΔRSS| (50M, 512k, 2G)
         --top N           how many diff rows to print (default 30)
+    -V, --version   print the version
     -h, --help      show this help
 
 KEYS:
@@ -47,6 +48,10 @@ fn main() -> ExitCode {
                         return ExitCode::from(2);
                     }
                 }
+            }
+            "-V" | "--version" => {
+                println!("mtop {}", env!("CARGO_PKG_VERSION"));
+                return ExitCode::SUCCESS;
             }
             "--json" => json_out = true,
             "--min-delta" => {

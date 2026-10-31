@@ -27,6 +27,7 @@ cargo build --release
 ./target/release/mtop --json --pid 1234   # 附带该进程的 VMA 明细
 mtop --diff a.json b.json        # 比较两份快照，按 |ΔRSS| 排序
 mtop --diff a.json b.json --min-delta 50M --top 10   # 只看显著变化
+mtop --version
 ```
 
 ```sh
