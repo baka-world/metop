@@ -5,11 +5,25 @@ use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Sparkline, Table};
 use ratatui::Frame;
 
 use crate::app::{App, DetailRow, View};
-use crate::model::{ProcRow, SortKey, PSS_MAX_AGE};
+use crate::cgroup::CgroupMem;
+use crate::model::{SortKey, PSS_MAX_AGE};
 use crate::procfs::fmt_kb;
 
 const SHARE_W: usize = 6;
 const MIX_W: usize = 12;
+
+/// Selected row / badge highlight.
+///
+/// Explicit colours, never Modifier::REVERSED: reverse swaps the terminal's
+/// default fg/bg, so on a transparent or unusual palette the text ends up
+/// drawn in the background colour (i.e. invisible). Any theme-independent
+/// pair works; this one is legible against both light and dark backgrounds.
+pub const HL_BG: Color = Color::Blue;
+pub const HL_FG: Color = Color::White;
+
+fn highlight_style() -> Style {
+    Style::new().bg(HL_BG).fg(HL_FG)
+}
 
 const SPARK_LEVELS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
@@ -117,7 +131,7 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
     };
     let swap_used = snap.mem.swap_total_kb.saturating_sub(snap.mem.swap_free_kb);
     let line1 = Line::from(vec![
-        Span::styled(" mtop ", Style::new().add_modifier(Modifier::BOLD | Modifier::REVERSED)),
+        Span::styled(" mtop ", highlight_style().add_modifier(Modifier::BOLD)),
         Span::raw(format!(" {} procs  mem ", snap.rows.len())),
         Span::styled(
             format!("{}/{}", fmt_kb(used), fmt_kb(snap.mem.total_kb)),
@@ -238,15 +252,29 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
     );
 }
 
+/// Selected rows and badges are drawn by `highlight_style()` after the cells
+/// are rendered, so the explicit background/foreground wins over per-cell
+/// colours. That is why no per-cell `plain` mode is needed (and why reverse
+/// video must not be used: it swaps the terminal's default colours).
+/// Red when a cgroup has ever hit an OOM kill, nothing otherwise.
+fn oom_style_color(c: &CgroupMem) -> Option<Color> {
+    (c.oom_recent > 0 || c.oom_kills > 0).then_some(Color::Red)
+}
+
+fn styled_span(text: impl Into<String>, color: Color) -> Span<'static> {
+    Span::styled(text.into(), Style::new().fg(color))
+}
+
+fn styled_cell(text: impl Into<String>, color: Color) -> Cell<'static> {
+    Cell::from(Text::from(styled_span(text, color)))
+}
+
 fn bar_cell(frac: f64, color: Color, width: usize) -> Cell<'static> {
     let n = ((frac.clamp(0.0, 1.0)) * width as f64).round() as usize;
     let mut filled: String = "█".repeat(n);
     filled.push_str(&" ".repeat(width - n));
-    Cell::from(Text::from(Line::from(Span::styled(
-        filled,
-        Style::new().fg(color),
-    ))))
-    .style(Style::new().fg(Color::DarkGray))
+    Cell::from(Text::from(Line::from(styled_span(filled, color))))
+        .style(Style::new().fg(Color::DarkGray))
 }
 
 /// Split `width` cells across `values` proportionally; the last segment takes
@@ -278,7 +306,7 @@ fn segmented_cell(values: &[u64], colors: &[Color]) -> Cell<'static> {
     let mut used = 0;
     for (w, color) in widths.iter().zip(colors) {
         if *w > 0 {
-            spans.push(Span::styled("█".repeat(*w), Style::new().fg(*color)));
+            spans.push(styled_span("█".repeat(*w), *color));
             used += w;
         }
     }
@@ -305,7 +333,7 @@ fn split_cell_scaled(private_kb: u64, shared_kb: u64, frac: f64) -> Cell<'static
     let mut spans: Vec<Span<'static>> = Vec::with_capacity(3);
     for (w, color) in widths.iter().zip([Color::Magenta, Color::Cyan]) {
         if *w > 0 {
-            spans.push(Span::styled("█".repeat(*w), Style::new().fg(color)));
+            spans.push(styled_span("█".repeat(*w), color));
         }
     }
     if filled < MIX_W {
@@ -316,15 +344,12 @@ fn split_cell_scaled(private_kb: u64, shared_kb: u64, frac: f64) -> Cell<'static
 
 fn delta_span(d: i64) -> Span<'static> {
     if d == 0 {
-        return Span::styled("     0", Style::new().fg(Color::DarkGray));
+        return styled_span("     0", Color::DarkGray);
     }
     let kb = d.unsigned_abs();
     let sign = if d > 0 { "+" } else { "-" };
     let color = if d > 0 { Color::Red } else { Color::Green };
-    Span::styled(
-        format!("{sign}{:>6}", fmt_kb(kb)),
-        Style::new().fg(color),
-    )
+    styled_span(format!("{sign}{:>6}", fmt_kb(kb)), color)
 }
 
 fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
@@ -339,7 +364,7 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
 
     let rows: Vec<Row> = visible
         .iter()
-        .map(|r: &&ProcRow| {
+        .map(|r| {
             let pss = snap.pss.get(&r.pid);
             let pss_kb = pss.map(|p| p.rollup.pss_kb);
             let uss_kb = pss.map(|p| p.rollup.uss_kb);
@@ -381,28 +406,22 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
                 Cell::from(truncate(&r.comm, 20)),
                 Cell::from(format!("{:>9}", fmt_kb(r.rss_kb))),
                 Cell::from(match pss_kb {
-                    Some(v) if stale => Text::from(Span::styled(
-                        format!("{:>8}~", fmt_kb(v)),
-                        Style::new().fg(Color::DarkGray),
-                    )),
-                    Some(v) => Text::from(format!("{:>9}", fmt_kb(v))),
-                    None if denied => {
-                        Text::from(Span::styled("      n/a", Style::new().fg(Color::DarkGray)))
+                    Some(v) if stale => {
+                        styled_span(format!("{:>8}~", fmt_kb(v)), Color::DarkGray)
                     }
-                    None => Text::from(Span::styled("        —", Style::new().fg(Color::DarkGray))),
+                    Some(v) => Span::raw(format!("{:>9}", fmt_kb(v))),
+                    None if denied => styled_span("      n/a", Color::DarkGray),
+                    None => styled_span("        —", Color::DarkGray),
                 }),
                 Cell::from(match uss_kb {
-                    Some(v) if stale => Text::from(Span::styled(
-                        format!("{:>8}~", fmt_kb(v)),
-                        Style::new().fg(Color::DarkGray),
-                    )),
-                    Some(v) => Text::from(format!("{:>9}", fmt_kb(v))),
-                    None if denied => {
-                        Text::from(Span::styled("      n/a", Style::new().fg(Color::DarkGray)))
+                    Some(v) if stale => {
+                        styled_span(format!("{:>8}~", fmt_kb(v)), Color::DarkGray)
                     }
-                    None => Text::from(Span::styled("        —", Style::new().fg(Color::DarkGray))),
+                    Some(v) => Span::raw(format!("{:>9}", fmt_kb(v))),
+                    None if denied => styled_span("      n/a", Color::DarkGray),
+                    None => styled_span("        —", Color::DarkGray),
                 }),
-                Cell::from(Text::from(Span::styled(ratio_text, Style::new().fg(ratio_color)))),
+                styled_cell(ratio_text, ratio_color),
                 Cell::from(Text::from(delta_span(r.delta_kb))),
                 bar_cell(frac, bar_color, SHARE_W),
                 match mix {
@@ -459,7 +478,7 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
     )
     .header(header)
     .block(Block::new().borders(Borders::ALL).title(sort_label))
-    .row_highlight_style(Style::new().add_modifier(Modifier::REVERSED))
+    .row_highlight_style(highlight_style())
     .highlight_symbol("▸");
 
     f.render_stateful_widget(table, area, &mut state);
@@ -479,7 +498,7 @@ fn cgroup_drill(f: &mut Frame, area: Rect, app: &mut App) {
     let summary = Line::from(vec![
         Span::styled(
             format!(" {} ", truncate_left(&path, 60)),
-            Style::new().add_modifier(Modifier::BOLD | Modifier::REVERSED),
+            highlight_style().add_modifier(Modifier::BOLD),
         ),
         Span::raw(format!(
             " current {} · {} procs in subtree · limit {} · psi {:.1}/{:.1}% ",
@@ -536,7 +555,7 @@ fn cgroup_drill(f: &mut Frame, area: Rect, app: &mut App) {
                 Cell::from(format!("{:>9}", fmt_kb(r.rss_kb))),
                 Cell::from(match pss {
                     Some(p) => Text::from(format!("{:>9}", fmt_kb(p.rollup.pss_kb))),
-                    None => Text::from(Span::styled("        —", Style::new().fg(Color::DarkGray))),
+                    None => Text::from(styled_span("        —", Color::DarkGray)),
                 }),
                 Cell::from(match ratio {
                     Some(v) => format!("{:>7.0}%", v * 100.0),
@@ -574,7 +593,7 @@ fn cgroup_drill(f: &mut Frame, area: Rect, app: &mut App) {
             .borders(Borders::ALL)
             .title(" procs in cgroup subtree  (Esc back) "),
     )
-    .row_highlight_style(Style::new().add_modifier(Modifier::REVERSED))
+    .row_highlight_style(highlight_style())
     .highlight_symbol("▸");
 
     f.render_stateful_widget(table, chunks[1], &mut state);
@@ -617,17 +636,10 @@ fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
                 Color::Cyan
             };
             // "7▲" means: 7 kills total, at least one since the last scan.
-            let (oom_text, oom_style) = if c.oom_recent > 0 {
-                (
-                    format!("{:>3}▲", c.oom_kills),
-                    Style::new()
-                        .fg(Color::Red)
-                        .add_modifier(Modifier::BOLD),
-                )
-            } else if c.oom_kills > 0 {
-                (format!("{:>4}", c.oom_kills), Style::new().fg(Color::Red))
+            let oom_text = if c.oom_recent > 0 {
+                format!("{:>3}▲", c.oom_kills)
             } else {
-                (format!("{:>4}", 0), Style::new().fg(Color::DarkGray))
+                format!("{:>4}", c.oom_kills)
             };
             Row::new(vec![
                 Cell::from(truncate_left(&c.path, 42)),
@@ -640,17 +652,20 @@ fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
                     Some(l) => Text::from(format!("{:>9}", fmt_kb(l))),
                     None => Text::from(Span::styled("      max", Style::new().fg(Color::DarkGray))),
                 }),
-                Cell::from(Text::from(Span::styled(
+                styled_cell(
                     format!("{:>6.1}%", c.psi_some10),
                     if c.psi_some10 >= 20.0 {
-                        Style::new().fg(Color::Red)
+                        Color::Red
                     } else if c.psi_some10 >= 5.0 {
-                        Style::new().fg(Color::Yellow)
+                        Color::Yellow
                     } else {
-                        Style::new().fg(Color::DarkGray)
+                        Color::DarkGray
                     },
-                ))),
-                Cell::from(Text::from(Span::styled(oom_text, oom_style))),
+                ),
+                Cell::from(Text::from(match oom_style_color(c) {
+                    Some(color) => styled_span(oom_text, color),
+                    None => Span::raw(oom_text),
+                })),
                 bar_cell(frac, color, 10),
             ])
         })
@@ -699,7 +714,7 @@ fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
     )
     .header(header)
     .block(Block::new().borders(Borders::ALL).title(title))
-    .row_highlight_style(Style::new().add_modifier(Modifier::REVERSED))
+    .row_highlight_style(highlight_style())
     .highlight_symbol("▸");
 
     f.render_stateful_widget(table, area, &mut state);
@@ -718,7 +733,7 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
         Line::from(vec![
             Span::styled(
                 format!(" {} {} ", d.pid, truncate(&d.comm, 24)),
-                Style::new().add_modifier(Modifier::BOLD | Modifier::REVERSED),
+                highlight_style().add_modifier(Modifier::BOLD),
             ),
             Span::raw(format!(
                 " RSS {}  PSS {}  USS {}  swap {} ",
@@ -859,7 +874,7 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
     )
     .header(header)
     .block(Block::new().borders(Borders::ALL).title(title))
-    .row_highlight_style(Style::new().add_modifier(Modifier::REVERSED));
+    .row_highlight_style(highlight_style());
 
     f.render_stateful_widget(table, chunks[1], &mut state);
     app.detail_state = state;
