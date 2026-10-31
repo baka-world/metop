@@ -31,8 +31,8 @@ jobs:
       - name: Test
         run: cargo test --release --locked
 
-  build:
-    name: build (x86_64-musl)
+  package:
+    name: build + package (x86_64)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -43,7 +43,12 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Build
+      - uses: taiki-e/install-action@cargo-deb
+
+      - name: Install cargo-generate-rpm
+        run: cargo install cargo-generate-rpm --locked
+
+      - name: Build (static musl)
         run: cargo build --release --locked --target x86_64-unknown-linux-musl
 
       - name: Smoke test the binary
@@ -59,3 +64,23 @@ jobs:
           assert d["sampling"]["procs"] >= len(d["procs"]) - 5
           print(f"snapshot ok: {len(d['procs'])} procs, covered={d['sampling']['covered']}")
           PY
+
+      - name: Package .deb and .rpm
+        run: |
+          set -euo pipefail
+          target=x86_64-unknown-linux-musl
+          cargo deb --no-build --target "$target"
+          mkdir -p "target/$target/generate-rpm"
+          cargo generate-rpm --target "$target" --output "target/$target/generate-rpm"
+          ls -l target/debian/*.deb "target/$target/generate-rpm/"*.rpm
+
+      - name: Verify packages
+        run: |
+          set -euo pipefail
+          target=x86_64-unknown-linux-musl
+          dpkg-deb -c target/debian/*.deb | grep -q 'usr/bin/mtop'
+          test "$(dpkg-deb -f target/debian/*.deb Architecture)" = amd64
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq rpm
+          rpm -qlp "target/$target/generate-rpm/"*.rpm | grep -qx /usr/bin/mtop
+          test "$(rpm -qp --qf '%{ARCH}' "target/$target/generate-rpm/"*.rpm)" = x86_64

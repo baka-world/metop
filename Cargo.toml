@@ -15,6 +15,32 @@ procfs = { version = "0.18", default-features = false }
 # only for `--json`: a snapshot must be diffable without the TUI
 serde_json = "1"
 
+# .deb metadata (cargo-deb). The packaged binary is static musl, so it has no
+# runtime dependencies.
+[package.metadata.deb]
+maintainer = "YimoLieu <yimolieu@163.com>"
+copyright = "2026, YimoLieu"
+license-file = ["LICENSE", "4"]
+extended-description = "Linux memory analysis TUI: RSS/PSS/USS per process, VMA drill-down, cgroup v2 view and an app treemap."
+section = "utils"
+priority = "optional"
+assets = [
+    ["target/release/mtop", "usr/bin/mtop", "755"],
+    ["README.md", "usr/share/doc/mtop/README.md", "644"],
+]
+
+# .rpm metadata (cargo-generate-rpm)
+[package.metadata.generate-rpm]
+summary = "Linux memory analysis TUI"
+license = "MIT"
+vendor = "YimoLieu"
+url = "https://github.com/baka-world/mtop"
+release = "1"
+assets = [
+    { source = "target/release/mtop", dest = "/usr/bin/mtop", mode = "755" },
+    { source = "README.md", dest = "/usr/share/doc/mtop/README.md", mode = "644", doc = true },
+]
+
 [profile.release]
 lto = "thin"
 strip = true
