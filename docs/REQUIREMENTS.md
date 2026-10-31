@@ -46,7 +46,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | F7 | 诚实表头：内存用量取自 `/proc/meminfo`；另显示 sweep/pss 耗时、PSS 覆盖率、样本年龄 | 实机帧：`coverage 205/205 = 5.85G 237 n/a` |
 | F8 | 权限失败时显示原因，不显示空面板 | `detail_error` → "vm mappings unavailable / /proc/N/smaps: …" |
 | F9 | `--pid PID` 启动即选中 | 实机：`--pid 579585` → 首行 ▸ chrome |
-| F10 | 不可读进程（EACCES/ESRCH）标 `n/a`，且不占用采样预算；30 s 后重试 | `denied_pids_do_not_consume_the_budget_until_the_denial_expires` |
+| F10 | 不可读进程区分原因：`EACCES`（需要 root，提示 `n/a (needs root)`）与 `ESRCH/无 mm`（内核线程，root 也无解，仅标 `n/a`）；两者都负缓存 30 s、不占预算 | `denied_pids_do_not_consume_the_budget_until_the_denial_expires`、`unreadable_processes_are_classified_by_reason` |
 | F11 | 按 PSS/USS/比值排序时，覆盖率未满则标题标注 `ranking incomplete` | `render` 断言 + 实机帧 |
 | F12 | 进程内存构成：anon / file / shmem / swap-pss / THP / KSM，表格里用堆叠条、详情页给出数值 | 实机：chrome `anon 243M file 57M shmem 4.3M`，与 `/proc/PID/smaps_rollup` 一致 |
 | F13 | 详情页可过滤映射名（`f`），与进程过滤互不干扰 | `detail_filter_narrows_mappings`、`editing_targets_the_detail_filter...` |
@@ -80,7 +80,11 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | swap-pss | `smaps_rollup` | `SwapPss`（按共享度加权） | 与 `Swap`（实际换出量）不是同一个量，UI 分开显示 |
 | THP / KSM | `smaps_rollup` | `AnonHugePages` / `KSM` | 大页会被算进 anon，KSM 合并的页仍计入 PSS |
 
-**PSS 覆盖率的语义**：`smaps_rollup` 需要 ptrace 读权限。普通用户实测 **216/452 可读**（其余是本用户之外与内核线程），因此表头的分母是"可读进程数"，其余显示 `n/a` 并提示 `sudo for full`。覆盖率的分母**不是**进程总数——否则永远到不了 100%，会诱导用户误判"采样卡住了"。
+**PSS 覆盖率的语义**：`smaps_rollup` 需要 ptrace 读权限。实测 439 个 PID 中：**176 个内核线程（无 mm，root 也读不到）**、**59 个其他用户进程（root 可读）**、204 个本用户进程。因此：
+
+- 分母 = `procs − no_mm`（不含内核线程），否则永远到不了 100%。
+- `n/a (needs root)` 只统计 `EACCES` 的那一类，root 下应归零；内核线程的 `n/a` 不带 sudo 提示。
+- 用 root 验证的完整步骤与预期数值见 [VERIFY-ROOT.md](VERIFY-ROOT.md)。
 
 `procfs::Meminfo` 的单位是**字节**，UI 用 kB——这条转换有专门的回归测试（`meminfo_is_normalized_to_kb`），因为漏掉 `/1024` 的后果是表头显示 15.7 TB。
 
@@ -121,7 +125,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 4b. **读不到 ≠ 不占内存**：`n/a` 的进程（多为 root 进程）仍有 RSS，只是拿不到 PSS。要全量 PSS 就用 `sudo` 运行；这条限制来自内核的 ptrace 权限模型，不是实现缺陷。
 5. **内核线程**：`smaps_rollup` 为空，PSS 显示 `—`，不是 0。
 6. **快照的 new/gone 语义**：`--diff` 只比较两份快照，进程在两次采样之间重启会同时表现为 gone + new（PID 变化）；写快照的 `mtop` 自身按 `self_pid` 排除。
-7. **以 root 运行的路径未实测**：`sudo` 在设计上能拿到全部进程的 PSS（分母会自动变成可读进程数 + 之前的 n/a 归零），但本机没有免密 sudo，这条路径只有代码推演，没有实机验证。
+7. **以 root 运行的路径待实测**：`sudo` 应让 `denied` 归零、`covered` 覆盖到 `procs − no_mm`；本机没有免密 sudo，该路径由使用者按 [VERIFY-ROOT.md](VERIFY-ROOT.md) 验证。
 8. **ratatui 0.30 拆包后的 API 漂移**：`Cargo.toml` 用 `=0.30.2` 锁定，升级需单独评估。
 
 ## 9. 交付状态
@@ -133,11 +137,11 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | 单文件分发 | `cargo build --release` → 1.4 MB，无运行时依赖 |
 | LICENSE | MIT（与 `Cargo.toml` 一致） |
 | `--version` / `--help` | 已提供，`tests/cli.rs` 覆盖 |
-| **未完成** | CI 流水线；git remote/发布产物；root 路径实机验证 |
+| **未完成** | CI 流水线；git remote/发布产物；root 路径实机验证（清单已备，待执行） |
 
 ## 10. 里程碑
 
-- **M1（当前）**：两层采样 + 进程表 + VMA 聚合详情 + 趋势 + 过滤/排序 + 55 个测试 + 实机验证。
+- **M1（当前）**：两层采样 + 进程表 + VMA 聚合详情 + 趋势 + 过滤/排序 + 56 个测试 + 实机验证。
 - **M1.1（已完成，见 commit）**：PSS 覆盖率策略——预算按"未知优先、其后最旧优先"分配；EACCES 负缓存 30 s；分母改为可读进程数；陈旧值加 `~` 后缀。
 - **M2（进行中）**：
   - 已完成：PSS 构成（anon/file/shmem/swap-pss/THP/KSM）；映射过滤；`--json` 快照（稳定排序、schema 版本、`_kb` 单位）。

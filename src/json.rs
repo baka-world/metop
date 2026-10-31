@@ -152,6 +152,7 @@ fn build_doc(snap: &Snapshot) -> Value {
                 "rss_kb": row.rss_kb,
                 "delta_kb": row.delta_kb,
                 "denied": snap.denied.contains(&row.pid),
+                "no_mm": snap.no_mm.contains(&row.pid),
                 "pss_age_ms": pss.map(|p| p.at.elapsed().as_millis() as u64),
                 "pss": pss.map(|p| rollup_json(&p.rollup)).unwrap_or(Value::Null),
             })
@@ -201,6 +202,7 @@ fn build_doc(snap: &Snapshot) -> Value {
             "procs": snap.rows.len(),
             "covered": snap.covered,
             "denied": snap.denied.len(),
+            "no_mm": snap.no_mm.len(),
             "covered_pss_kb": snap.covered_pss_kb,
         },
         "cgroups": snap.cgroups.iter().map(|c| json!({

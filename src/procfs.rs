@@ -73,13 +73,39 @@ fn bytes(map: &HashMap<String, u64>, key: &str) -> u64 {
 
 const KB: u64 = 1024;
 
+/// Why a process has no PSS. The distinction matters: `Denied` becomes readable
+/// under sudo, `NoMemoryMap` (kernel threads) never does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RollupError {
+    /// EACCES: needs CAP_SYS_PTRACE, i.e. run as root.
+    Denied,
+    /// The process has no address space (kernel thread) or is already gone.
+    NoMemoryMap,
+    Other,
+}
+
+fn classify(err: &procfs::ProcError) -> RollupError {
+    use procfs::ProcError as E;
+    match err {
+        E::PermissionDenied(_) => RollupError::Denied,
+        E::NotFound(_) => RollupError::NoMemoryMap,
+        _ => RollupError::Other,
+    }
+}
+
 /// Exact Rss/Pss/USS. Walks the page table: ~1.5 ms average, up to ~19 ms for
 /// a 520 MB browser process.
-pub fn read_rollup(pid: u32) -> Option<Rollup> {
-    let p = Process::new(pid as i32).ok()?;
-    let maps = p.smaps_rollup().ok()?;
-    let map = &maps.memory_map_rollup.0.first()?.extension.map;
-    Some(Rollup {
+pub fn read_rollup(pid: u32) -> Result<Rollup, RollupError> {
+    let p = Process::new(pid as i32).map_err(|e| classify(&e))?;
+    let maps = p.smaps_rollup().map_err(|e| classify(&e))?;
+    let map = &maps
+        .memory_map_rollup
+        .0
+        .first()
+        .ok_or(RollupError::NoMemoryMap)?
+        .extension
+        .map;
+    Ok(Rollup {
         rss_kb: bytes(map, "Rss") / KB,
         pss_kb: bytes(map, "Pss") / KB,
         uss_kb: (bytes(map, "Private_Clean") + bytes(map, "Private_Dirty")) / KB,

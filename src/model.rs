@@ -97,8 +97,10 @@ pub struct Snapshot {
     /// Sum of PSS for entries younger than PSS_MAX_AGE, and how many that is.
     pub covered_pss_kb: u64,
     pub covered: usize,
-    /// Pids whose smaps_rollup is unreadable right now (EACCES/ESRCH).
+    /// Pids whose smaps_rollup needs privileges (EACCES). `sudo` fixes these.
     pub denied: HashSet<u32>,
+    /// Pids with no address space (kernel threads) - no privilege will help.
+    pub no_mm: HashSet<u32>,
     pub at: Instant,
 }
 

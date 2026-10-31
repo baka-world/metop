@@ -112,7 +112,7 @@ mtop diff  over 4s  (437 -> 438 procs)   15 grew, 3 shrank, 1 new, 0 gone
 
 ## 已知限制
 
-- **PSS 需要权限**：`/proc/PID/smaps_rollup` 走 ptrace 读权限检查。普通用户只能读到自己（及同凭据 / dumpable）的进程——实测 216/218 之外还有 234 个进程不可读，表头显示 `n/a` 并提示 `sudo for full`。`sudo ./target/release/mtop` 可得全量。
+- **PSS 需要权限**：`/proc/PID/smaps_rollup` 走 ptrace 读权限检查。普通用户只能读到自己（及同凭据 / dumpable）的进程；表头把两类"读不到"分开：`n/a (needs root)` 是其他用户的进程（`sudo` 可解），内核线程没有地址空间（root 也无解，只标 `n/a`）。分母 = 进程数 − 内核线程数。`sudo ./target/release/mtop` 后 `n/a (needs root)` 应归零，验证步骤见 [docs/VERIFY-ROOT.md](docs/VERIFY-ROOT.md)。
 - **读不到不代表不占内存**：`n/a` 的行仍有 RSS，只是没有 PSS。
 - 内核线程的 `smaps_rollup` 为空，恒为 `n/a`。
 

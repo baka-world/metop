@@ -132,7 +132,10 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
         )),
     ]);
     let denied = snap.denied.len();
-    let eligible = snap.rows.len().saturating_sub(denied);
+    // Kernel threads have no address space: no privilege will ever give them a
+    // PSS, so they must not sit in the denominator forever.
+    let no_mm = snap.no_mm.len();
+    let eligible = snap.rows.len().saturating_sub(no_mm);
     let mut line2 = vec![
         Span::styled(
             format!(" sweep {:.0}ms ", snap.sweep_ms),
@@ -154,7 +157,7 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
     ];
     if denied > 0 {
         line2.push(Span::styled(
-            format!("{denied} n/a (sudo for full) "),
+            format!("{denied} n/a (needs root) "),
             Style::new().fg(Color::Yellow),
         ));
     }
@@ -343,7 +346,8 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
             // Older than the freshness window: last known value, suffixed with
             // '~' so a stale number can never be mistaken for a live one.
             let stale = pss.is_some_and(|p| p.at.elapsed() > PSS_MAX_AGE);
-            let denied = snap.denied.contains(&r.pid);
+            let denied =
+                snap.denied.contains(&r.pid) || snap.no_mm.contains(&r.pid);
             let ratio = pss.filter(|_| r.rss_kb > 0).map(|p| p.rollup.pss_kb as f64 / r.rss_kb as f64);
             let ratio_text = match ratio {
                 Some(v) => format!("{:>6.0}%", v * 100.0),
@@ -425,7 +429,7 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
     // A PSS/USS ranking is only meaningful once the rollup cache has been
     // filled; say so instead of silently ranking unsampled rows as zero.
     let rank_incomplete = matches!(app.sort, SortKey::Pss | SortKey::Uss | SortKey::Ratio)
-        && snap.covered + snap.denied.len() < snap.rows.len();
+        && snap.covered + snap.denied.len() < snap.rows.len().saturating_sub(snap.no_mm.len());
     let mut sort_label = format!(
         " procs  sort {} {}  filter {} ",
         app.sort.label(),
@@ -436,7 +440,7 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
         sort_label.push_str(&format!(
             " pss {}/{} · ranking incomplete ",
             snap.covered,
-            snap.rows.len().saturating_sub(snap.denied.len())
+            snap.rows.len().saturating_sub(snap.no_mm.len())
         ));
     }
     let table = Table::new(

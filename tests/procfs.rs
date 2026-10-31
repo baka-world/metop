@@ -98,3 +98,46 @@ fn meminfo_is_normalized_to_kb() {
         ours.total_kb
     );
 }
+
+#[test]
+fn unreadable_processes_are_classified_by_reason() {
+    use mtop::procfs::RollupError;
+
+    // Our own process is always readable.
+    assert!(procfs::read_rollup(std::process::id()).is_ok());
+
+    // pid 2 with an all-zero statm is a kernel thread: no address space, so
+    // "run as root" cannot help and the UI must not suggest it.
+    let statm = std::fs::read_to_string("/proc/2/statm").unwrap_or_default();
+    if !statm.is_empty() && statm.split_whitespace().all(|v| v == "0") {
+        assert!(
+            matches!(procfs::read_rollup(2), Err(RollupError::NoMemoryMap)),
+            "kernel threads must be NoMemoryMap, not Denied: {:?}",
+            procfs::read_rollup(2)
+        );
+    }
+
+    // A root-owned process is Denied for a non-root user (that is the case the
+    // sudo path is supposed to fix).
+    if euid() != 0 {
+        let status = std::fs::read_to_string("/proc/1/status").unwrap_or_default();
+        let root_owned = status.contains("Uid:\t0\t");
+        if root_owned {
+            assert!(
+                matches!(procfs::read_rollup(1), Err(RollupError::Denied)),
+                "root-owned process must be classified as Denied: {:?}",
+                procfs::read_rollup(1)
+            );
+        }
+    }
+}
+
+fn euid() -> u32 {
+    let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    status
+        .lines()
+        .find_map(|l| l.strip_prefix("Uid:"))
+        .and_then(|rest| rest.split_whitespace().nth(1))
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0)
+}

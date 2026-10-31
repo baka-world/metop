@@ -24,6 +24,7 @@ struct State {
     detail: Option<Detail>,
     detail_error: Option<String>,
     denied: HashMap<u32, Instant>,
+    no_mm: HashMap<u32, Instant>,
     ticks: u32,
     mem: procfs::MemInfo,
     cgroups: Vec<crate::cgroup::CgroupMem>,
@@ -42,6 +43,7 @@ impl State {
             detail: None,
             detail_error: None,
             denied: HashMap::new(),
+            no_mm: HashMap::new(),
             ticks: 0,
             mem: procfs::read_meminfo(),
             cgroups: crate::cgroup::scan(std::path::Path::new(crate::cgroup::ROOT)),
@@ -115,12 +117,18 @@ pub fn pss_targets(
     rows: &[ProcRow],
     pss: &HashMap<u32, PssInfo>,
     denied: &HashMap<u32, Instant>,
+    no_mm: &HashMap<u32, Instant>,
     refresh_after: Duration,
     denied_ttl: Duration,
 ) -> Vec<u32> {
-    // Denied pids keep their place in the row list but must not consume the
+    // Unreadable pids keep their place in the row list but must not consume the
     // budget again until the denial expires.
-    let allowed = |pid: u32| !denied.get(&pid).is_some_and(|at| at.elapsed() < denied_ttl);
+    let allowed = |pid: u32| {
+        let fresh = |m: &HashMap<u32, Instant>| {
+            m.get(&pid).is_some_and(|at| at.elapsed() < denied_ttl)
+        };
+        !fresh(denied) && !fresh(no_mm)
+    };
     let mut order: Vec<u32> = Vec::with_capacity(rows.len() + 1);
     if let Some(pid) = focus
         && allowed(pid)
@@ -174,6 +182,7 @@ fn tick(st: &mut State, pss_budget: Duration) -> Snapshot {
         &rows,
         &st.pss,
         &st.denied,
+        &st.no_mm,
         PSS_REFRESH_AFTER,
         PSS_DENIED_TTL,
     ) {
@@ -181,11 +190,16 @@ fn tick(st: &mut State, pss_budget: Duration) -> Snapshot {
             break;
         }
         match procfs::read_rollup(pid) {
-            Some(rollup) => {
+            Ok(rollup) => {
                 st.pss.insert(pid, PssInfo { rollup, at: Instant::now() });
                 st.denied.remove(&pid);
+                st.no_mm.remove(&pid);
             }
-            None => {
+            Err(procfs::RollupError::NoMemoryMap) => {
+                st.pss.remove(&pid);
+                st.no_mm.insert(pid, Instant::now());
+            }
+            Err(_) => {
                 st.pss.remove(&pid);
                 st.denied.insert(pid, Instant::now());
             }
@@ -195,6 +209,8 @@ fn tick(st: &mut State, pss_budget: Duration) -> Snapshot {
     let alive: std::collections::HashSet<u32> = rows.iter().map(|r| r.pid).collect();
     st.pss.retain(|pid, _| alive.contains(pid));
     st.denied
+        .retain(|pid, at| alive.contains(pid) && at.elapsed() < PSS_DENIED_TTL);
+    st.no_mm
         .retain(|pid, at| alive.contains(pid) && at.elapsed() < PSS_DENIED_TTL);
     let pss_ms = t_pss.elapsed().as_secs_f32() * 1000.0;
 
@@ -213,7 +229,7 @@ fn tick(st: &mut State, pss_budget: Duration) -> Snapshot {
                             .pss
                             .get(&pid)
                             .map(|p| p.rollup)
-                            .or_else(|| procfs::read_rollup(pid))
+                            .or_else(|| procfs::read_rollup(pid).ok())
                             .unwrap_or_default();
                         st.detail = Some(Detail {
                             pid,
@@ -281,6 +297,7 @@ fn tick(st: &mut State, pss_budget: Duration) -> Snapshot {
         covered_pss_kb,
         covered,
         denied: st.denied.keys().copied().collect(),
+        no_mm: st.no_mm.keys().copied().collect(),
         at: Instant::now(),
     }
 }
@@ -308,6 +325,7 @@ mod tests {
             &rows,
             &pss,
             &HashMap::new(),
+            &HashMap::new(),
             Duration::from_secs(2),
             Duration::from_secs(30),
         );
@@ -323,6 +341,7 @@ mod tests {
         let got = pss_targets(
             None,
             &rows,
+            &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
             Duration::from_secs(2),
@@ -344,6 +363,7 @@ mod tests {
             &rows,
             &pss,
             &HashMap::new(),
+            &HashMap::new(),
             Duration::from_secs(2),
             Duration::from_secs(30),
         );
@@ -356,6 +376,7 @@ mod tests {
             pss_targets(
                 None,
                 &[],
+                &HashMap::new(),
                 &HashMap::new(),
                 &HashMap::new(),
                 Duration::from_secs(2),
@@ -379,6 +400,7 @@ mod tests {
             &rows,
             &HashMap::new(),
             &denied,
+            &HashMap::new(),
             Duration::from_secs(2),
             Duration::from_secs(30),
         );
