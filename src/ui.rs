@@ -543,10 +543,18 @@ fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
             } else {
                 Color::Cyan
             };
-            let oom_style = if c.oom_kills > 0 {
-                Style::new().fg(Color::Red)
+            // "7▲" means: 7 kills total, at least one since the last scan.
+            let (oom_text, oom_style) = if c.oom_recent > 0 {
+                (
+                    format!("{:>3}▲", c.oom_kills),
+                    Style::new()
+                        .fg(Color::Red)
+                        .add_modifier(Modifier::BOLD),
+                )
+            } else if c.oom_kills > 0 {
+                (format!("{:>4}", c.oom_kills), Style::new().fg(Color::Red))
             } else {
-                Style::new().fg(Color::DarkGray)
+                (format!("{:>4}", 0), Style::new().fg(Color::DarkGray))
             };
             Row::new(vec![
                 Cell::from(truncate_left(&c.path, 46)),
@@ -559,7 +567,7 @@ fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
                     Some(l) => Text::from(format!("{:>9}", fmt_kb(l))),
                     None => Text::from(Span::styled("      max", Style::new().fg(Color::DarkGray))),
                 }),
-                Cell::from(Text::from(Span::styled(format!("{:>4}", c.oom_kills), oom_style))),
+                Cell::from(Text::from(Span::styled(oom_text, oom_style))),
                 bar_cell(frac, color, 10),
             ])
         })
@@ -578,7 +586,8 @@ fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
     ])
     .style(Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD));
 
-    let title = format!(
+    let recent: u64 = snap.cgroups.iter().map(|c| c.oom_recent).sum();
+    let mut title = format!(
         " cgroups  sort {} {}  filter {}  ({} of {}) ",
         app.cgroup_sort.label(),
         if app.desc { "↓" } else { "↑" },
@@ -586,6 +595,9 @@ fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
         visible.len(),
         snap.cgroups.len()
     );
+    if recent > 0 {
+        title.push_str(&format!("  oom +{recent} since last sample "));
+    }
     let table = Table::new(
         rows,
         [

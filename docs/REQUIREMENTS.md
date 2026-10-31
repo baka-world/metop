@@ -56,6 +56,8 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | F17 | `Tab` 切换 cgroup v2 视图：path/current/anon/file/kernel/slab/max/oom，按 current 或构成排序、可过滤 | `tab_switches_to_the_cgroup_view`、`cgroup_view_sorts_and_filters`、实机 174 个 cgroup |
 | F18 | `--json` 附带 `cgroups` 数组（path/current/anon/file/kernel/slab/shmem/limit/oom_kills） | `tests/json.rs` |
 | F19 | cgroup 视图 `Enter` 下钻出子树内进程（PID/COMM/RSS/PSS/占比），`Esc` 返回 | `cgroup_drill_lists_members_of_the_subtree`、`drill_down_uses_subtree_membership` |
+| F20 | OOM 事件增量：列显示累计值，采样间隔内新增时标 `▲` 且标题汇总；首帧不算增量 | `tab_switches_to_the_cgroup_view`（`2▲` + 标题断言） |
+| F21 | `--diff --min-delta SIZE --top N`：过滤小变化、限制行数；非法值退出码 2 | `tests/diff.rs`（阈值/条数/坏参数） |
 
 ## 5. 数据来源与精度
 
@@ -118,7 +120,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 
 ## 9. 里程碑
 
-- **M1（当前）**：两层采样 + 进程表 + VMA 聚合详情 + 趋势 + 过滤/排序 + 40 个测试 + 实机验证。
+- **M1（当前）**：两层采样 + 进程表 + VMA 聚合详情 + 趋势 + 过滤/排序 + 44 个测试 + 实机验证。
 - **M1.1（已完成，见 commit）**：PSS 覆盖率策略——预算按"未知优先、其后最旧优先"分配；EACCES 负缓存 30 s；分母改为可读进程数；陈旧值加 `~` 后缀。
 - **M2（进行中）**：
   - 已完成：PSS 构成（anon/file/shmem/swap-pss/THP/KSM）；映射过滤；`--json` 快照（稳定排序、schema 版本、`_kb` 单位）。
@@ -128,4 +130,5 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 - **M3（进行中）**：
   - 已完成：cgroup v2 内存视图（`Tab`）、`--json` 的 `cgroups` 数组、`--diff` 文本对比。
   - 已完成（第三轮）：cgroup → 进程下钻（子树匹配，`/proc/PID/cgroup` 每 5 s 刷新）。
-  - 待做：`memory.events` 的 OOM 历史曲线；diff 的阈值/过滤开关；`--json` 字段筛选。
+  - 已完成（第四轮）：OOM 增量标记（`▲` + 标题汇总）；`--diff --min-delta/--top`。
+  - 待做：OOM 历史曲线（需要按时间采样 `memory.events`）；`--json` 字段筛选。

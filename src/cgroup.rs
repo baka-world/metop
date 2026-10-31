@@ -21,7 +21,10 @@ pub struct CgroupMem {
     pub shmem_kb: u64,
     /// `memory.max`; `None` when unlimited ("max") or unreadable.
     pub limit_kb: Option<u64>,
+    /// Cumulative `oom_kill` from memory.events.
     pub oom_kills: u64,
+    /// Kills observed since the previous scan (filled in by the sampler).
+    pub oom_recent: u64,
 }
 
 /// Pure parser so the format can be tested without a cgroup filesystem.

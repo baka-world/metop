@@ -28,6 +28,7 @@ struct State {
     mem: procfs::MemInfo,
     cgroups: Vec<crate::cgroup::CgroupMem>,
     pid_cgroup: std::sync::Arc<HashMap<u32, String>>,
+    oom_prev: HashMap<String, u64>,
 }
 
 impl State {
@@ -44,6 +45,7 @@ impl State {
             mem: procfs::read_meminfo(),
             cgroups: crate::cgroup::scan(std::path::Path::new(crate::cgroup::ROOT)),
             pid_cgroup: std::sync::Arc::new(crate::cgroup::pid_map()),
+            oom_prev: HashMap::new(),
         }
     }
 }
@@ -243,6 +245,17 @@ fn tick(st: &mut State, pss_budget: Duration) -> Snapshot {
     if st.ticks.is_multiple_of(MEMINFO_EVERY) {
         st.mem = procfs::read_meminfo();
         st.cgroups = crate::cgroup::scan(std::path::Path::new(crate::cgroup::ROOT));
+        // OOM events are cumulative; report the delta since the last scan and
+        // treat the first sighting as "no events" rather than a spike.
+        for cg in &mut st.cgroups {
+            let prev = st.oom_prev.get(&cg.path).copied().unwrap_or(cg.oom_kills);
+            cg.oom_recent = cg.oom_kills.saturating_sub(prev);
+        }
+        st.oom_prev = st
+            .cgroups
+            .iter()
+            .map(|c| (c.path.clone(), c.oom_kills))
+            .collect();
         st.pid_cgroup = std::sync::Arc::new(crate::cgroup::pid_map());
     }
 
