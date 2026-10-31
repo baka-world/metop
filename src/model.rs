@@ -65,6 +65,8 @@ pub struct Detail {
     pub comm: String,
     pub cmdline: String,
     pub report: SmapsReport,
+    /// Process-level rollup, the only source of the anon/file/shmem PSS split.
+    pub rollup: crate::procfs::Rollup,
     pub parse_ms: f32,
     pub at: Instant,
 }

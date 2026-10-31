@@ -43,11 +43,14 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | F4 | 过滤：按进程名子串或 PID 前缀 | `filter_matches_comm_and_pid` |
 | F5 | 详情：按映射名聚合 PSS/USS/虚拟大小/VMA 数 | `detail_view_shows_grouped_vmas` + 实机端到端（2292 VMAs → 286 组） |
 | F6 | 焦点进程 RSS 趋势 sparkline（120 点） | 实机截图；数据源为 UI 侧环形缓冲 |
-| F7 | 诚实表头：内存用量取自 `/proc/meminfo`；另显示 sweep/pss 耗时、PSS 覆盖率、样本年龄 | 实机帧：`coverage 213/218 = 6.03G 234 n/a` |
+| F7 | 诚实表头：内存用量取自 `/proc/meminfo`；另显示 sweep/pss 耗时、PSS 覆盖率、样本年龄 | 实机帧：`coverage 205/205 = 5.85G 237 n/a` |
 | F8 | 权限失败时显示原因，不显示空面板 | `detail_error` → "vm mappings unavailable / /proc/N/smaps: …" |
 | F9 | `--pid PID` 启动即选中 | 实机：`--pid 579585` → 首行 ▸ chrome |
 | F10 | 不可读进程（EACCES/ESRCH）标 `n/a`，且不占用采样预算；30 s 后重试 | `denied_pids_do_not_consume_the_budget_until_the_denial_expires` |
 | F11 | 按 PSS/USS/比值排序时，覆盖率未满则标题标注 `ranking incomplete` | `render` 断言 + 实机帧 |
+| F12 | 进程内存构成：anon / file / shmem / swap-pss / THP / KSM，表格里用堆叠条、详情页给出数值 | 实机：chrome `anon 243M file 57M shmem 4.3M`，与 `/proc/PID/smaps_rollup` 一致 |
+| F13 | 详情页可过滤映射名（`f`），与进程过滤互不干扰 | `detail_filter_narrows_mappings`、`editing_targets_the_detail_filter...` |
+| F14 | `--json` 输出一次性快照：稳定按 PID 排序、显式 `_kb` 单位、带 schema 版本 | `tests/json.rs` 通过真实二进制校验 |
 
 ## 5. 数据来源与精度
 
@@ -59,6 +62,9 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | anon | `smaps_rollup` | `Anonymous:` | — |
 | 系统内存 | `/proc/meminfo` | `MemTotal - MemAvailable` | **绝不用进程行求和**：PSS 只覆盖一部分进程 |
 | VMA 分组 | `/proc/PID/smaps` | 按 `MMapPath` 聚合 | `Size` 是虚拟大小，含未提交的稀疏映射（见过 100 G 的 `[anon]`） |
+| PSS 构成 | `/proc/PID/smaps_rollup` | `Pss_Anon` / `Pss_File` / `Pss_Shmem`（三者之和 = `Pss`） | **逐 VMA 的 `smaps` 不输出这三个字段**，早期实现按 VMA 求和恒为 0——构成必须取 rollup |
+| swap-pss | `smaps_rollup` | `SwapPss`（按共享度加权） | 与 `Swap`（实际换出量）不是同一个量，UI 分开显示 |
+| THP / KSM | `smaps_rollup` | `AnonHugePages` / `KSM` | 大页会被算进 anon，KSM 合并的页仍计入 PSS |
 
 **PSS 覆盖率的语义**：`smaps_rollup` 需要 ptrace 读权限。普通用户实测 **216/452 可读**（其余是本用户之外与内核线程），因此表头的分母是"可读进程数"，其余显示 `n/a` 并提示 `sudo for full`。覆盖率的分母**不是**进程总数——否则永远到不了 100%，会诱导用户误判"采样卡住了"。
 
@@ -84,7 +90,8 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | `g`/`G`、`Home`/`End` | 顶部 / 底部 |
 | `s` | 循环排序键（重置选择） |
 | `r` | 反向排序 |
-| `f` | 过滤输入；`Enter` 应用，`Esc` 取消 |
+| `f` | 过滤输入；`Enter` 应用，`Esc` 取消（详情页中过滤映射名，互不干扰） |
+| `Esc`（详情） | 有映射过滤时先清除过滤，再按一次退出详情 |
 | `Enter` | 进入 VMA 详情 / 返回 |
 | `Esc` | 返回 / 清除过滤 |
 | `q`、`Ctrl-C` | 退出 |
@@ -101,7 +108,10 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 
 ## 9. 里程碑
 
-- **M1（当前）**：两层采样 + 进程表 + VMA 聚合详情 + 趋势 + 过滤/排序 + 17 个测试 + 实机验证。
+- **M1（当前）**：两层采样 + 进程表 + VMA 聚合详情 + 趋势 + 过滤/排序 + 24 个测试 + 实机验证。
 - **M1.1（已完成，见 commit）**：PSS 覆盖率策略——预算按"未知优先、其后最旧优先"分配；EACCES 负缓存 30 s；分母改为可读进程数；陈旧值加 `~` 后缀。
-- **M2**：VMA 行可选/可过滤；KSM、hugepage、swap-pss 列（走 `wora-observability-linux-mm`）；快照导出 JSON 以便 diff。
+- **M2（进行中）**：
+  - 已完成：PSS 构成（anon/file/shmem/swap-pss/THP/KSM）；映射过滤；`--json` 快照（稳定排序、schema 版本、`_kb` 单位）。
+  - 待做：VMA 单行展开（组 → 逐 VMA）；两次快照 diff 视图；`--json` 的字段筛选参数。
+  - 备忘：`wora-observability-linux-mm` 只在需要 VMA 级元数据（KSM 明细、pagemap、UFFD）时才引入；`procfs` 已经覆盖当前全部字段。
 - **M3**：`--json` 脚本模式；cgroup/容器聚合；两次快照对比视图。

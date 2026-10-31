@@ -8,7 +8,8 @@ use crate::app::App;
 use crate::model::{ProcRow, SortKey, PSS_MAX_AGE};
 use crate::procfs::fmt_kb;
 
-const BAR_W: usize = 18;
+const SHARE_W: usize = 6;
+const MIX_W: usize = 12;
 
 fn truncate(s: &str, n: usize) -> String {
     if s.chars().count() <= n {
@@ -155,15 +156,80 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
     );
 }
 
-fn bar_cell(frac: f64, color: Color) -> Cell<'static> {
-    let n = ((frac.clamp(0.0, 1.0)) * BAR_W as f64).round() as usize;
+fn bar_cell(frac: f64, color: Color, width: usize) -> Cell<'static> {
+    let n = ((frac.clamp(0.0, 1.0)) * width as f64).round() as usize;
     let mut filled: String = "█".repeat(n);
-    filled.push_str(&" ".repeat(BAR_W - n));
+    filled.push_str(&" ".repeat(width - n));
     Cell::from(Text::from(Line::from(Span::styled(
         filled,
         Style::new().fg(color),
     ))))
     .style(Style::new().fg(Color::DarkGray))
+}
+
+/// Split `width` cells across `values` proportionally; the last segment takes
+/// the rounding remainder so the widths always sum to exactly `width`.
+pub fn segments(values: &[u64], width: usize) -> Vec<usize> {
+    let mut out = vec![0usize; values.len()];
+    // u128: summing kB fields can overflow u64 (the test suite pins this).
+    let total: u128 = values.iter().map(|v| *v as u128).sum();
+    if total == 0 || width == 0 || values.is_empty() {
+        return out;
+    }
+    let mut used = 0usize;
+    for (i, v) in values.iter().enumerate() {
+        let w = if i + 1 == values.len() {
+            width - used
+        } else {
+            ((*v as u128 as f64 / total as f64) * width as f64).round() as usize
+        };
+        let w = w.min(width - used);
+        out[i] = w;
+        used += w;
+    }
+    out
+}
+
+fn segmented_cell(values: &[u64], colors: &[Color]) -> Cell<'static> {
+    let widths = segments(values, MIX_W);
+    let mut spans: Vec<Span<'static>> = Vec::with_capacity(values.len() + 1);
+    let mut used = 0;
+    for (w, color) in widths.iter().zip(colors) {
+        if *w > 0 {
+            spans.push(Span::styled("█".repeat(*w), Style::new().fg(*color)));
+            used += w;
+        }
+    }
+    if used < MIX_W {
+        spans.push(Span::raw(" ".repeat(MIX_W - used)));
+    }
+    Cell::from(Text::from(Line::from(spans)))
+}
+
+/// Stacked PSS composition: anonymous / file-backed / shmem / swapped-out.
+/// This is the part htop cannot show — it answers "is this heap or page cache".
+fn mix_cell(anon_kb: u64, file_kb: u64, shmem_kb: u64, swap_kb: u64) -> Cell<'static> {
+    segmented_cell(
+        &[anon_kb, file_kb, shmem_kb, swap_kb],
+        &[Color::Magenta, Color::Cyan, Color::Yellow, Color::Blue],
+    )
+}
+
+/// Private (only this process pays) vs shared (PSS-weighted) pages, with the
+/// total length scaled by `frac` so magnitude and split are both visible.
+fn split_cell_scaled(private_kb: u64, shared_kb: u64, frac: f64) -> Cell<'static> {
+    let filled = ((frac.clamp(0.0, 1.0)) * MIX_W as f64).round() as usize;
+    let widths = segments(&[private_kb, shared_kb], filled);
+    let mut spans: Vec<Span<'static>> = Vec::with_capacity(3);
+    for (w, color) in widths.iter().zip([Color::Magenta, Color::Cyan]) {
+        if *w > 0 {
+            spans.push(Span::styled("█".repeat(*w), Style::new().fg(color)));
+        }
+    }
+    if filled < MIX_W {
+        spans.push(Span::raw(" ".repeat(MIX_W - filled)));
+    }
+    Cell::from(Text::from(Line::from(spans)))
 }
 
 fn delta_span(d: i64) -> Span<'static> {
@@ -212,6 +278,14 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
             };
             let frac = r.rss_kb as f64 / max_rss as f64;
             let mem_frac = r.rss_kb as f64 / total as f64;
+            let mix = pss.map(|p| {
+                (
+                    p.rollup.pss_anon_kb,
+                    p.rollup.pss_file_kb,
+                    p.rollup.pss_shmem_kb,
+                    p.rollup.swap_pss_kb,
+                )
+            });
             let bar_color = if mem_frac > 0.15 {
                 Color::Red
             } else if mem_frac > 0.05 {
@@ -247,7 +321,11 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
                 }),
                 Cell::from(Text::from(Span::styled(ratio_text, Style::new().fg(ratio_color)))),
                 Cell::from(Text::from(delta_span(r.delta_kb))),
-                bar_cell(frac, bar_color),
+                bar_cell(frac, bar_color, SHARE_W),
+                match mix {
+                    Some((a, f, sh, sw)) => mix_cell(a, f, sh, sw),
+                    None => Cell::from(Span::raw(" ".repeat(MIX_W))),
+                },
             ])
         })
         .collect();
@@ -260,7 +338,8 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
         Cell::from(format!("{:>9}", "USS")),
         Cell::from(format!("{:>7}", "PSS/RSS")),
         Cell::from(format!("{:>7}", "Δ/s")),
-        Cell::from(" RSS SHARE"),
+        Cell::from(" SHARE"),
+        Cell::from(" PSS MIX"),
     ])
     .style(Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD));
 
@@ -291,7 +370,8 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
             Constraint::Length(9),
             Constraint::Length(7),
             Constraint::Length(7),
-            Constraint::Length(BAR_W as u16),
+            Constraint::Length(SHARE_W as u16),
+            Constraint::Length(MIX_W as u16),
         ],
     )
     .header(header)
@@ -309,7 +389,7 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
         app.detail_state = state;
         return;
     };
-    let chunks = Layout::vertical([Constraint::Length(3), Constraint::Min(4)]).split(area);
+    let chunks = Layout::vertical([Constraint::Length(4), Constraint::Min(4)]).split(area);
     let r = &d.report;
     let summary = vec![
         Line::from(vec![
@@ -318,13 +398,39 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
                 Style::new().add_modifier(Modifier::BOLD | Modifier::REVERSED),
             ),
             Span::raw(format!(
-                " RSS {}  PSS {}  USS {}  anon {}  swap {} ",
+                " RSS {}  PSS {}  USS {}  swap {} ",
                 fmt_kb(r.rss_kb),
                 fmt_kb(r.pss_kb),
                 fmt_kb(r.uss_kb),
-                fmt_kb(r.anon_kb),
                 fmt_kb(r.swap_kb)
             )),
+        ]),
+        Line::from(vec![
+            Span::styled("pss by kind  ", Style::new().fg(Color::DarkGray)),
+            Span::styled(
+                format!("anon {}  ", fmt_kb(d.rollup.pss_anon_kb)),
+                Style::new().fg(Color::Magenta),
+            ),
+            Span::styled(
+                format!("file {}  ", fmt_kb(d.rollup.pss_file_kb)),
+                Style::new().fg(Color::Cyan),
+            ),
+            Span::styled(
+                format!("shmem {}  ", fmt_kb(d.rollup.pss_shmem_kb)),
+                Style::new().fg(Color::Yellow),
+            ),
+            Span::styled(
+                format!("swap-pss {}  ", fmt_kb(d.rollup.swap_pss_kb)),
+                Style::new().fg(Color::Blue),
+            ),
+            Span::styled(
+                format!(
+                    "THP {}  KSM {}  ",
+                    fmt_kb(d.rollup.thp_kb),
+                    fmt_kb(d.rollup.ksm_kb)
+                ),
+                Style::new().fg(Color::DarkGray),
+            ),
         ]),
         Line::from(Span::styled(
             format!(
@@ -332,7 +438,7 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
                 r.vma_count,
                 r.groups.len(),
                 d.parse_ms,
-                truncate(&d.cmdline, 140)
+                truncate(&d.cmdline, 120)
             ),
             Style::new().fg(Color::DarkGray),
         )),
@@ -342,57 +448,62 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
         chunks[0],
     );
 
-    let max_pss = r.groups.iter().map(|g| g.pss_kb).max().unwrap_or(1).max(1);
-    let rows: Vec<Row> = r
+    let needle = app.detail_filter.to_lowercase();
+    let groups: Vec<&crate::procfs::VmaGroup> = r
         .groups
+        .iter()
+        .filter(|g| needle.is_empty() || g.label.to_lowercase().contains(&needle))
+        .collect();
+    let max_pss = groups.iter().map(|g| g.pss_kb).max().unwrap_or(1).max(1);
+    let rows: Vec<Row> = groups
         .iter()
         .map(|g| {
             let frac = g.pss_kb as f64 / max_pss as f64;
-            let color = if g.pss_kb == 0 {
-                Color::DarkGray
-            } else if g.uss_kb * 4 > g.pss_kb * 3 {
-                Color::Magenta
-            } else {
-                Color::Cyan
-            };
             Row::new(vec![
-                Cell::from(truncate(&g.label, 46)),
+                Cell::from(truncate(&g.label, 44)),
                 Cell::from(format!("{:>9}", fmt_kb(g.pss_kb))),
                 Cell::from(format!("{:>9}", fmt_kb(g.uss_kb))),
+                Cell::from(format!("{:>9}", fmt_kb(g.anon_kb))),
+                Cell::from(format!("{:>9}", fmt_kb(g.swap_kb))),
                 Cell::from(format!("{:>9}", fmt_kb(g.size_kb))),
                 Cell::from(format!("{:>5}", g.count)),
-                bar_cell(frac, color),
+                split_cell_scaled(g.uss_kb, g.pss_kb.saturating_sub(g.uss_kb), frac),
             ])
         })
         .collect();
 
     let header = Row::new(vec![
-        Cell::from(format!("{:<46}", "MAPPING")),
+        Cell::from(format!("{:<44}", "MAPPING")),
         Cell::from(format!("{:>9}", "PSS")),
         Cell::from(format!("{:>9}", "USS")),
+        Cell::from(format!("{:>9}", "ANON")),
+        Cell::from(format!("{:>9}", "SWAP")),
         Cell::from(format!("{:>9}", "SIZE")),
         Cell::from(format!("{:>5}", "VMAS")),
-        Cell::from(" PSS"),
+        Cell::from("  PRIV|SHARED"),
     ])
     .style(Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD));
 
+    let title = if needle.is_empty() {
+        " vm mappings by PSS  (Esc back, j/k scroll, f filter) ".to_string()
+    } else {
+        format!(" vm mappings by PSS  filter {} ", app.detail_filter)
+    };
     let table = Table::new(
         rows,
         [
-            Constraint::Length(46),
+            Constraint::Length(44),
+            Constraint::Length(9),
+            Constraint::Length(9),
             Constraint::Length(9),
             Constraint::Length(9),
             Constraint::Length(9),
             Constraint::Length(5),
-            Constraint::Length(BAR_W as u16),
+            Constraint::Length(MIX_W as u16),
         ],
     )
     .header(header)
-    .block(
-        Block::new()
-            .borders(Borders::ALL)
-            .title(" vm mappings by PSS  (Esc back, j/k scroll) "),
-    )
+    .block(Block::new().borders(Borders::ALL).title(title))
     .row_highlight_style(Style::new().add_modifier(Modifier::REVERSED));
 
     f.render_stateful_widget(table, chunks[1], &mut state);
@@ -402,14 +513,17 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
 fn footer(f: &mut Frame, area: Rect, app: &App) {
     let line = if app.editing {
         Line::from(vec![
-            Span::styled(" filter: ", Style::new().fg(Color::Yellow)),
+            Span::styled(
+                if app.editing_detail { " vma filter: " } else { " filter: " },
+                Style::new().fg(Color::Yellow),
+            ),
             Span::raw(app.edit_buf.clone()),
             Span::styled("▏", Style::new().fg(Color::Yellow)),
             Span::styled("   Enter 应用 · Esc 取消", Style::new().fg(Color::DarkGray)),
         ])
     } else if app.detail {
         Line::from(Span::styled(
-            " q quit │ j/k scroll │ Esc back │ Enter back │ s sort │ r reverse │ f filter ",
+            " q quit │ j/k scroll │ f vma filter │ Esc clear/back │ Enter back ",
             Style::new().fg(Color::DarkGray),
         ))
     } else {
@@ -422,4 +536,30 @@ fn footer(f: &mut Frame, area: Rect, app: &App) {
         ))
     };
     f.render_widget(Paragraph::new(line), area);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::segments;
+
+    #[test]
+    fn segments_always_sum_to_width() {
+        for values in [
+            vec![60, 30, 10, 0],
+            vec![1, 1, 1],
+            vec![0, 0, 5],
+            vec![u64::MAX, 1],
+            vec![7],
+        ] {
+            let w = segments(&values, 12);
+            assert_eq!(w.iter().sum::<usize>(), 12, "{values:?} -> {w:?}");
+        }
+    }
+
+    #[test]
+    fn segments_are_proportional_and_exact() {
+        assert_eq!(segments(&[60, 30, 10, 0], 12), vec![7, 4, 1, 0]);
+        assert_eq!(segments(&[0, 0, 0, 0], 12), vec![0, 0, 0, 0]);
+        assert_eq!(segments(&[5], 12), vec![12]);
+    }
 }

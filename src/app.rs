@@ -15,7 +15,11 @@ pub struct App {
     pub sort: SortKey,
     pub desc: bool,
     pub filter: String,
+    /// Mapping-name filter for the VMA detail view (independent of `filter`).
+    pub detail_filter: String,
     pub editing: bool,
+    /// Whether the in-progress edit targets the detail filter.
+    pub editing_detail: bool,
     pub edit_buf: String,
     pub sel: usize,
     pub detail: bool,
@@ -35,7 +39,9 @@ impl App {
             sort: SortKey::Rss,
             desc: true,
             filter: String::new(),
+            detail_filter: String::new(),
             editing: false,
+            editing_detail: false,
             edit_buf: String::new(),
             sel: 0,
             detail: false,
@@ -163,16 +169,26 @@ impl App {
         self.clamp();
     }
 
+    /// Number of VMA groups currently visible under `detail_filter`.
+    pub fn detail_len(&self) -> usize {
+        let needle = self.detail_filter.to_lowercase();
+        self.snap
+            .as_ref()
+            .and_then(|s| s.detail.as_ref())
+            .map(|d| {
+                d.report
+                    .groups
+                    .iter()
+                    .filter(|g| needle.is_empty() || g.label.to_lowercase().contains(&needle))
+                    .count()
+            })
+            .unwrap_or(0)
+    }
+
     fn clamp(&mut self) {
         let n_proc = self.visible().len();
         self.sel = self.sel.min(n_proc.saturating_sub(1));
-        let n_vma = self
-            .snap
-            .as_ref()
-            .and_then(|s| s.detail.as_ref())
-            .map(|d| d.report.groups.len())
-            .unwrap_or(0);
-        self.detail_sel = self.detail_sel.min(n_vma.saturating_sub(1));
+        self.detail_sel = self.detail_sel.min(self.detail_len().saturating_sub(1));
         self.table_state.select(Some(self.sel));
         self.detail_state.select(Some(self.detail_sel));
     }
@@ -204,7 +220,12 @@ impl App {
             KeyCode::Char('r') => self.desc = !self.desc,
             KeyCode::Char('f') => {
                 self.editing = true;
-                self.edit_buf = self.filter.clone();
+                self.editing_detail = self.detail;
+                self.edit_buf = if self.detail {
+                    self.detail_filter.clone()
+                } else {
+                    self.filter.clone()
+                };
             }
             KeyCode::Enter => {
                 if self.detail {
@@ -216,7 +237,10 @@ impl App {
                 }
             }
             KeyCode::Esc => {
-                if self.detail {
+                if self.detail && !self.detail_filter.is_empty() {
+                    self.detail_filter.clear();
+                    self.detail_sel = 0;
+                } else if self.detail {
                     self.detail = false;
                     self.detail_sel = 0;
                 } else if !self.filter.is_empty() {
@@ -233,12 +257,19 @@ impl App {
     fn on_edit_key(&mut self, key: KeyEvent) -> bool {
         match key.code {
             KeyCode::Enter => {
-                self.filter = self.edit_buf.clone();
+                if self.editing_detail {
+                    self.detail_filter = self.edit_buf.clone();
+                    self.detail_sel = 0;
+                } else {
+                    self.filter = self.edit_buf.clone();
+                    self.sel = 0;
+                }
                 self.editing = false;
-                self.sel = 0;
+                self.editing_detail = false;
             }
             KeyCode::Esc => {
                 self.editing = false;
+                self.editing_detail = false;
                 self.edit_buf.clear();
             }
             KeyCode::Backspace => {
@@ -254,12 +285,7 @@ impl App {
 
     fn move_sel(&mut self, delta: isize) {
         if self.detail {
-            let n = self
-                .snap
-                .as_ref()
-                .and_then(|s| s.detail.as_ref())
-                .map(|d| d.report.groups.len())
-                .unwrap_or(0);
+            let n = self.detail_len();
             self.detail_sel = step(self.detail_sel, delta, n);
             return;
         }

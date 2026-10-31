@@ -6,6 +6,7 @@
 //!   detail   (on demand): /proc/<pid>/smaps, 30-40 ms
 
 pub mod app;
+pub mod json;
 pub mod model;
 pub mod procfs;
 pub mod sampler;

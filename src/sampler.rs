@@ -28,6 +28,33 @@ struct State {
     mem: procfs::MemInfo,
 }
 
+impl State {
+    fn new() -> Self {
+        State {
+            focus: None,
+            want_detail: false,
+            pss: HashMap::new(),
+            prev_rss: HashMap::new(),
+            detail: None,
+            detail_error: None,
+            denied: HashMap::new(),
+            ticks: 0,
+            mem: procfs::read_meminfo(),
+        }
+    }
+}
+
+/// One synchronous snapshot with a permissive budget, for `--json`.
+///
+/// The TUI spreads page-table walks over ticks; a one-shot caller cannot wait
+/// for that, so the whole readable set is walked in a single pass (~700 ms).
+pub fn snapshot_once(focus: Option<u32>, want_detail: bool) -> Snapshot {
+    let mut st = State::new();
+    st.focus = focus;
+    st.want_detail = want_detail;
+    tick(&mut st, Duration::from_secs(2))
+}
+
 pub fn spawn(rx: Receiver<Focus>, tx: Sender<Snapshot>) {
     thread::Builder::new()
         .name("sampler".into())
@@ -36,17 +63,7 @@ pub fn spawn(rx: Receiver<Focus>, tx: Sender<Snapshot>) {
 }
 
 fn run(rx: Receiver<Focus>, tx: Sender<Snapshot>) {
-    let mut st = State {
-        focus: None,
-        want_detail: false,
-        pss: HashMap::new(),
-        prev_rss: HashMap::new(),
-        detail: None,
-        detail_error: None,
-        denied: HashMap::new(),
-        ticks: 0,
-        mem: procfs::read_meminfo(),
-    };
+    let mut st = State::new();
     let mut next = Instant::now();
     let mut urgent = false;
 
@@ -67,7 +84,7 @@ fn run(rx: Receiver<Focus>, tx: Sender<Snapshot>) {
                 urgent = true;
             }
             Err(RecvTimeoutError::Timeout) => {
-                let snap = tick(&mut st);
+                let snap = tick(&mut st, PSS_BUDGET);
                 if tx.send(snap).is_err() {
                     return;
                 }
@@ -119,7 +136,7 @@ pub fn pss_targets(
     order
 }
 
-fn tick(st: &mut State) -> Snapshot {
+fn tick(st: &mut State, pss_budget: Duration) -> Snapshot {
     let page_kb = procfs::page_size() / 1024;
     let t_sweep = Instant::now();
 
@@ -152,7 +169,7 @@ fn tick(st: &mut State) -> Snapshot {
         PSS_REFRESH_AFTER,
         PSS_DENIED_TTL,
     ) {
-        if t_pss.elapsed() > PSS_BUDGET && Some(pid) != st.focus {
+        if t_pss.elapsed() > pss_budget && Some(pid) != st.focus {
             break;
         }
         match procfs::read_rollup(pid) {
@@ -184,11 +201,18 @@ fn tick(st: &mut State) -> Snapshot {
                 let t = Instant::now();
                 match procfs::read_smaps(pid) {
                     Ok(report) => {
+                        let rollup = st
+                            .pss
+                            .get(&pid)
+                            .map(|p| p.rollup)
+                            .or_else(|| procfs::read_rollup(pid))
+                            .unwrap_or_default();
                         st.detail = Some(Detail {
                             pid,
                             comm: rows.iter().find(|r| r.pid == pid).map(|r| r.comm.clone()).unwrap_or_default(),
                             cmdline: procfs::read_cmdline(pid),
                             report,
+                            rollup,
                             parse_ms: t.elapsed().as_secs_f32() * 1000.0,
                             at: Instant::now(),
                         });

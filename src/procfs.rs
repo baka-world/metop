@@ -52,7 +52,18 @@ pub struct Rollup {
     /// Private_Clean + Private_Dirty: memory only this process pays for.
     pub uss_kb: u64,
     pub swap_kb: u64,
+    /// Anonymous (heap/stack/malloc) resident.
     pub anon_kb: u64,
+    /// PSS split: these three sum to `pss_kb`.
+    pub pss_anon_kb: u64,
+    pub pss_file_kb: u64,
+    pub pss_shmem_kb: u64,
+    /// Swap accounted with PSS weighting (more accurate than Swap for shared pages).
+    pub swap_pss_kb: u64,
+    /// Transparent huge pages holding anonymous memory.
+    pub thp_kb: u64,
+    /// Pages merged by KSM: memory that exists but is shared away.
+    pub ksm_kb: u64,
 }
 
 /// smaps field values are in bytes.
@@ -74,6 +85,12 @@ pub fn read_rollup(pid: u32) -> Option<Rollup> {
         uss_kb: (bytes(map, "Private_Clean") + bytes(map, "Private_Dirty")) / KB,
         swap_kb: bytes(map, "Swap") / KB,
         anon_kb: bytes(map, "Anonymous") / KB,
+        pss_anon_kb: bytes(map, "Pss_Anon") / KB,
+        pss_file_kb: bytes(map, "Pss_File") / KB,
+        pss_shmem_kb: bytes(map, "Pss_Shmem") / KB,
+        swap_pss_kb: bytes(map, "SwapPss") / KB,
+        thp_kb: bytes(map, "AnonHugePages") / KB,
+        ksm_kb: bytes(map, "KSM") / KB,
     })
 }
 
@@ -83,6 +100,8 @@ pub struct VmaGroup {
     pub size_kb: u64,
     pub pss_kb: u64,
     pub uss_kb: u64,
+    pub anon_kb: u64,
+    pub swap_kb: u64,
     pub count: u32,
 }
 
@@ -95,6 +114,12 @@ pub struct SmapsReport {
     pub uss_kb: u64,
     pub swap_kb: u64,
     pub anon_kb: u64,
+    // NOTE: Pss_Anon / Pss_File / Pss_Shmem are only emitted by smaps_rollup,
+    // not by smaps; the per-kind split therefore comes from Rollup, never from
+    // summing per-VMA fields (which are simply absent and would read as 0).
+    pub swap_pss_kb: u64,
+    pub thp_kb: u64,
+    pub ksm_kb: u64,
 }
 
 fn label(path: &MMapPath) -> String {
@@ -130,21 +155,36 @@ pub fn read_smaps(pid: u32) -> Result<SmapsReport, procfs::ProcError> {
         report.uss_kb += (bytes(map, "Private_Clean") + bytes(map, "Private_Dirty")) / KB;
         report.swap_kb += bytes(map, "Swap") / KB;
         report.anon_kb += bytes(map, "Anonymous") / KB;
+        report.swap_pss_kb += bytes(map, "SwapPss") / KB;
+        report.thp_kb += bytes(map, "AnonHugePages") / KB;
+        report.ksm_kb += bytes(map, "KSM") / KB;
 
         let key = label(&m.pathname);
         let pss_kb = bytes(map, "Pss") / KB;
         let uss_kb = (bytes(map, "Private_Clean") + bytes(map, "Private_Dirty")) / KB;
         let size_kb = bytes(map, "Size") / KB;
+        let anon_kb = bytes(map, "Anonymous") / KB;
+        let swap_kb = bytes(map, "Swap") / KB;
         match idx.get(&key) {
             Some(&i) => {
                 groups[i].size_kb += size_kb;
                 groups[i].pss_kb += pss_kb;
                 groups[i].uss_kb += uss_kb;
+                groups[i].anon_kb += anon_kb;
+                groups[i].swap_kb += swap_kb;
                 groups[i].count += 1;
             }
             None => {
                 idx.insert(key.clone(), groups.len());
-                groups.push(VmaGroup { label: key, size_kb, pss_kb, uss_kb, count: 1 });
+                groups.push(VmaGroup {
+                    label: key,
+                    size_kb,
+                    pss_kb,
+                    uss_kb,
+                    anon_kb,
+                    swap_kb,
+                    count: 1,
+                });
             }
         }
     }

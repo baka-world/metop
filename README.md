@@ -5,13 +5,16 @@ Linux 内存分析 TUI：按 RSS / **PSS** / **USS** 看进程，按映射聚合
 `htop` 只给 RSS；把共享库算 N 遍的"内存排行"会骗人。mtop 用内核的 PSS 口径回答"谁真的占了内存"，并给出每个进程的内存花在了哪些映射上。
 
 ```
- mtop  466 procs  mem 9.51G/15.36G  avail 5.85G  cached 6.03G  swap 3.25G/16.00G
- sweep 24ms pss 155ms coverage 77/466 = 6.59G age 325ms              ┌ 579585 chrome 530M ┐
-┌ procs  sort RSS ↓  filter - ───────────────────────────────────────│▇▇▇▇█               │
-│     PID COMM                   RSS     PSS     USS PSS/RSS     Δ/s  │█████               │
-│▸ 579585 chrome                530M    348M    321M     66% +  0.0M  └─────────────────────┘
-│  623313 omp                   395M    349M    325M     88% +  0.3M
-│  582966 ChatGPT               353M    243M    219M     69%      0
+ mtop  442 procs  mem 8.13G/15.36G  avail 7.23G  cached 6.15G  swap 3.28G/16.00G
+ sweep 35ms pss 155ms coverage 205/205 = 5.85G  237 n/a (sudo for full) age 340ms
+┌ procs  sort RSS ↓  filter - ─────────────────────────────────────────────────────┐
+│     PID COMM                   RSS     PSS     USS PSS/RSS     Δ/s  SHARE  PSS MIX│
+│▸ 579585 chrome                524M    346M    320M     66%      0  ██████ ██████████
+│  623313 omp                   397M    349M    328M     88% +  0.1M █████  ████████████
+│    4551 dnf5daemon-serv       354M     n/a     n/a      —       0  ████
+│  512136 jetbrains-toolb       308M    281M    279M     91% -  0.0M ████   ████████████
+└──────────────────────────────────────────────────────────────────────────────────┘
+ q quit │ j/k move │ g/G ends │ s sort (RSS) │ r reverse │ f filter │ Enter vma detail
 ```
 
 ## 构建与运行
@@ -20,6 +23,13 @@ Linux 内存分析 TUI：按 RSS / **PSS** / **USS** 看进程，按映射聚合
 cargo build --release
 ./target/release/mtop            # 全系统
 ./target/release/mtop --pid 1234 # 启动即选中某个进程
+./target/release/mtop --json     # 一次性快照（可 diff、可 jq）
+./target/release/mtop --json --pid 1234   # 附带该进程的 VMA 明细
+```
+
+```sh
+mtop --json > a.json; sleep 30; mtop --json > b.json
+jq -r '.procs[] | select(.pss.pss_kb > 100000) | "\(.pid) \(.comm) \(.pss.pss_kb)"' b.json
 ```
 
 ## 按键
@@ -29,7 +39,7 @@ cargo build --release
 | `j`/`k`、`↑`/`↓`、`PgUp`/`PgDn` | 移动 |
 | `g`/`G` | 顶 / 底 |
 | `s` / `r` | 切换排序键 / 反向 |
-| `f` | 过滤（进程名子串或 PID 前缀），`Enter` 应用，`Esc` 取消 |
+| `f` | 过滤（进程名子串或 PID 前缀）；详情页中过滤映射名 |
 | `Enter` | 进入 / 退出 VMA 详情 |
 | `Esc` | 返回 / 清除过滤 |
 | `q` | 退出 |
@@ -45,6 +55,14 @@ cargo build --release
 | `/proc/PID/smaps` | 31–65 ms（2000+ VMA） | 仅焦点进程，2 s 一次 |
 
 `/proc` 解析全部交给 [`procfs`](https://crates.io/crates/procfs) 0.18，UI 用 [`ratatui`](https://crates.io/crates/ratatui) 0.30（版本锁定）。复用了什么、为什么没有 fork `bottom`、以及精度与风险，见 [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md)。
+
+## 详情页看什么
+
+表格里的 `PSS MIX` 是按 PSS 加权的构成条：紫=anon、青=file、黄=shmem、蓝=swap（`NO_COLOR` 生效时只剩单色块，这是 crossterm 的标准行为）。
+
+`Enter` 进入某个进程后，按映射聚合（2292 个 VMA → 286 组），并给出**PSS 构成**数值：anon / file / shmem / swap-pss / THP / KSM。
+
+注意口径：`Pss_Anon`/`Pss_File`/`Pss_Shmem` **只在 `smaps_rollup` 中存在**，逐 VMA 的 `smaps` 不输出它们——所以构成取进程级 rollup，映射级用 `Anonymous`/`Swap`/`Pss`。用逐 VMA 求和会得到全 0（踩过）。
 
 ## 已知限制
 
