@@ -145,7 +145,9 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | LICENSE | MIT（与 `Cargo.toml` 一致） |
 | `--version` / `--help` | 已提供，`tests/cli.rs` 覆盖 |
 | root 路径 | 已实测：`procs=447 covered=264 denied=0 no_mm=183`（见 VERIFY-ROOT.md §6） |
-| **未完成** | CI 流水线；git remote/发布产物 |
+| CI | GitHub Actions：`fmt` / `clippy -D warnings` / 全量测试；打包任务构建 musl 二进制并校验 deb/rpm 的载荷与架构 |
+| 发布产物 | `v0.1.0` 已发布：amd64/arm64 的 `.deb` 与 `.rpm`、静态 musl `.tar.gz`、按目标生成的 `SHA256SUMS` |
+| 仓库 | https://github.com/baka-world/mtop（public，MIT） |
 
 ## 10. 里程碑
 
@@ -160,7 +162,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 ### 未做（都是可选增强，不是缺口）
 
 - 历史窗口可配置（现在进程/apps 是 1 Hz × 120 点 = 2 分钟，cgroup/PSI 是 5 s × 120 点 = 10 分钟，两条时间轴不一致）。
-- CI 流水线（需要先定托管平台）。
-- 发布产物：tag、交叉编译（aarch64/musl）、安装脚本。
+- 历史窗口可配置（见上）。
+- `--json` 输出 apps 分组结果。
 - `--json` 输出 apps 分组结果（当前只有 procs/cgroups）。
 
