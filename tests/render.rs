@@ -503,9 +503,7 @@ fn cgroup_psi_history_is_recorded_and_plotted() {
     assert!(text.contains("psi 7.5%"), "psi trend label missing:\n{text}");
 }
 
-/// Selected rows must use one explicit highlight colour pair everywhere.
-/// Reverse video is deliberately not used: it swaps the terminal's default
-/// fg/bg, which draws text in the background colour on some palettes.
+/// Selected rows are tinted (background only) so semantic colours survive.
 fn selected_row_styles(app: &mut App) -> Vec<(ratatui::style::Color, ratatui::style::Color)> {
     let mut term = Terminal::new(TestBackend::new(120, 26)).unwrap();
     term.draw(|f| mtop::ui::draw(f, app)).unwrap();
@@ -519,38 +517,41 @@ fn selected_row_styles(app: &mut App) -> Vec<(ratatui::style::Color, ratatui::st
 }
 
 #[test]
-fn selected_rows_use_one_highlight_pair() {
-    use mtop::ui::{HL_BG, HL_FG};
+fn selected_row_is_tinted_without_losing_semantic_colours() {
+    use mtop::ui::HL_BG;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use ratatui::style::Color;
 
     let mut app = App::new(None);
     app.on_snapshot(snapshot());
 
     let procs = selected_row_styles(&mut app);
-    let highlighted = procs.iter().filter(|(_, bg)| *bg == HL_BG).count();
-    assert!(highlighted > 60, "selected row background missing ({highlighted} cells)");
-    let wrong: Vec<_> = procs
+    let tinted = procs.iter().filter(|(_, bg)| *bg == HL_BG).count();
+    assert!(tinted > 60, "selected row background missing ({tinted} cells)");
+
+    // The SHARE bar keeps its colour instead of being flattened to one tone.
+    let bar_cells = procs
         .iter()
-        .filter(|(_, bg)| *bg == HL_BG)
-        .filter(|(fg, _)| *fg != HL_FG)
-        .collect();
-    assert!(wrong.is_empty(), "cells on the selected row keep their own colour: {wrong:?}");
+        .filter(|(fg, bg)| *bg == HL_BG && matches!(fg, Color::Cyan | Color::Red | Color::Yellow))
+        .count();
+    assert!(
+        bar_cells > 0,
+        "selected row lost its bar colours: {procs:?}"
+    );
 
     app.on_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     let cgroups = selected_row_styles(&mut app);
-    let highlighted = cgroups.iter().filter(|(_, bg)| *bg == HL_BG).count();
-    assert!(highlighted > 60, "cgroup selected row background missing");
-    assert!(cgroups.iter().all(|(fg, bg)| *bg != HL_BG || *fg == HL_FG));
+    let tinted = cgroups.iter().filter(|(_, bg)| *bg == HL_BG).count();
+    assert!(tinted > 60, "cgroup selected row background missing");
 }
 
 #[test]
 fn highlight_never_falls_back_to_the_terminal_background() {
-    use mtop::ui::{HL_BG, HL_FG};
+    use mtop::ui::HL_BG;
     use ratatui::style::{Color, Modifier};
 
     assert_ne!(HL_BG, Color::Reset, "highlight must not inherit the background");
     assert_ne!(HL_BG, Color::Black, "black on a dark terminal is invisible");
-    assert_ne!(HL_FG, HL_BG);
 
     let mut app = App::new(None);
     app.on_snapshot(snapshot());
@@ -566,4 +567,3 @@ fn highlight_never_falls_back_to_the_terminal_background() {
         "selected row still relies on reverse video"
     );
 }
-

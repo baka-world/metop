@@ -14,15 +14,21 @@ const MIX_W: usize = 12;
 
 /// Selected row / badge highlight.
 ///
-/// Explicit colours, never Modifier::REVERSED: reverse swaps the terminal's
-/// default fg/bg, so on a transparent or unusual palette the text ends up
-/// drawn in the background colour (i.e. invisible). Any theme-independent
-/// pair works; this one is legible against both light and dark backgrounds.
-pub const HL_BG: Color = Color::Blue;
-pub const HL_FG: Color = Color::White;
+/// Only the background is set, and with an explicit RGB value rather than a
+/// palette entry: ANSI blue is a light steel blue in many themes, which made
+/// white text low-contrast, and overriding the foreground turned the coloured
+/// bars into a white band. Keeping per-cell colours and just tinting the row
+/// keeps every semantic colour (bars, deltas) readable.
+pub const HL_BG: Color = Color::Rgb(38, 79, 120);
 
 fn highlight_style() -> Style {
-    Style::new().bg(HL_BG).fg(HL_FG)
+    Style::new().bg(HL_BG)
+}
+
+/// Dim secondary text. On the tinted selected row DarkGray would vanish into
+/// the background, so lift it one step.
+fn dim(selected: bool) -> Color {
+    if selected { Color::Gray } else { Color::DarkGray }
 }
 
 const SPARK_LEVELS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
@@ -321,7 +327,7 @@ fn segmented_cell(values: &[u64], colors: &[Color]) -> Cell<'static> {
 fn mix_cell(anon_kb: u64, file_kb: u64, shmem_kb: u64, swap_kb: u64) -> Cell<'static> {
     segmented_cell(
         &[anon_kb, file_kb, shmem_kb, swap_kb],
-        &[Color::Magenta, Color::Cyan, Color::Yellow, Color::Blue],
+        &[Color::Magenta, Color::Cyan, Color::Yellow, Color::LightBlue],
     )
 }
 
@@ -342,9 +348,9 @@ fn split_cell_scaled(private_kb: u64, shared_kb: u64, frac: f64) -> Cell<'static
     Cell::from(Text::from(Line::from(spans)))
 }
 
-fn delta_span(d: i64) -> Span<'static> {
+fn delta_span(d: i64, dim_color: Color) -> Span<'static> {
     if d == 0 {
-        return styled_span("     0", Color::DarkGray);
+        return styled_span("     0", dim_color);
     }
     let kb = d.unsigned_abs();
     let sign = if d > 0 { "+" } else { "-" };
@@ -364,7 +370,9 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
 
     let rows: Vec<Row> = visible
         .iter()
-        .map(|r| {
+        .enumerate()
+        .map(|(i, r)| {
+            let selected = i == app.sel;
             let pss = snap.pss.get(&r.pid);
             let pss_kb = pss.map(|p| p.rollup.pss_kb);
             let uss_kb = pss.map(|p| p.rollup.uss_kb);
@@ -379,10 +387,10 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
                 None => "     —".to_string(),
             };
             let ratio_color = match ratio {
-                Some(_) if stale => Color::DarkGray,
+                Some(_) if stale => dim(selected),
                 Some(v) if v > 0.8 => Color::Yellow,
-                Some(_) => Color::DarkGray,
-                None => Color::DarkGray,
+                Some(_) => dim(selected),
+                None => dim(selected),
             };
             let frac = r.rss_kb as f64 / max_rss as f64;
             let mem_frac = r.rss_kb as f64 / total as f64;
@@ -407,22 +415,22 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
                 Cell::from(format!("{:>9}", fmt_kb(r.rss_kb))),
                 Cell::from(match pss_kb {
                     Some(v) if stale => {
-                        styled_span(format!("{:>8}~", fmt_kb(v)), Color::DarkGray)
+                        styled_span(format!("{:>8}~", fmt_kb(v)), dim(selected))
                     }
                     Some(v) => Span::raw(format!("{:>9}", fmt_kb(v))),
-                    None if denied => styled_span("      n/a", Color::DarkGray),
-                    None => styled_span("        —", Color::DarkGray),
+                    None if denied => styled_span("      n/a", dim(selected)),
+                    None => styled_span("        —", dim(selected)),
                 }),
                 Cell::from(match uss_kb {
                     Some(v) if stale => {
-                        styled_span(format!("{:>8}~", fmt_kb(v)), Color::DarkGray)
+                        styled_span(format!("{:>8}~", fmt_kb(v)), dim(selected))
                     }
                     Some(v) => Span::raw(format!("{:>9}", fmt_kb(v))),
-                    None if denied => styled_span("      n/a", Color::DarkGray),
-                    None => styled_span("        —", Color::DarkGray),
+                    None if denied => styled_span("      n/a", dim(selected)),
+                    None => styled_span("        —", dim(selected)),
                 }),
                 styled_cell(ratio_text, ratio_color),
-                Cell::from(Text::from(delta_span(r.delta_kb))),
+                Cell::from(Text::from(delta_span(r.delta_kb, dim(selected)))),
                 bar_cell(frac, bar_color, SHARE_W),
                 match mix {
                     Some((a, f, sh, sw)) => mix_cell(a, f, sh, sw),
@@ -536,7 +544,9 @@ fn cgroup_drill(f: &mut Frame, area: Rect, app: &mut App) {
     let max_rss = members.iter().map(|r| r.rss_kb).max().unwrap_or(1).max(1);
     let rows: Vec<Row> = members
         .iter()
-        .map(|r| {
+        .enumerate()
+        .map(|(i, r)| {
+            let selected = i == app.drill_sel;
             let pss = snap.pss.get(&r.pid);
             let ratio = pss
                 .filter(|_| r.rss_kb > 0)
@@ -555,7 +565,7 @@ fn cgroup_drill(f: &mut Frame, area: Rect, app: &mut App) {
                 Cell::from(format!("{:>9}", fmt_kb(r.rss_kb))),
                 Cell::from(match pss {
                     Some(p) => Text::from(format!("{:>9}", fmt_kb(p.rollup.pss_kb))),
-                    None => Text::from(styled_span("        —", Color::DarkGray)),
+                    None => Text::from(styled_span("        —", dim(selected))),
                 }),
                 Cell::from(match ratio {
                     Some(v) => format!("{:>7.0}%", v * 100.0),
@@ -623,7 +633,9 @@ fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
     let max_cur = snap.cgroups.iter().map(|c| c.current_kb).max().unwrap_or(1).max(1);
     let rows: Vec<Row> = visible
         .iter()
-        .map(|c| {
+        .enumerate()
+        .map(|(i, c)| {
+            let selected = i == app.cgroup_sel;
             let (frac, over) = match c.limit_kb {
                 Some(limit) if limit > 0 => (c.current_kb as f64 / limit as f64, limit),
                 _ => (c.current_kb as f64 / max_cur as f64, 0),
@@ -650,7 +662,7 @@ fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
                 Cell::from(format!("{:>9}", fmt_kb(c.slab_kb))),
                 Cell::from(match c.limit_kb {
                     Some(l) => Text::from(format!("{:>9}", fmt_kb(l))),
-                    None => Text::from(Span::styled("      max", Style::new().fg(Color::DarkGray))),
+                    None => Text::from(Span::styled("      max", Style::new().fg(dim(selected)))),
                 }),
                 styled_cell(
                     format!("{:>6.1}%", c.psi_some10),
@@ -659,7 +671,7 @@ fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
                     } else if c.psi_some10 >= 5.0 {
                         Color::Yellow
                     } else {
-                        Color::DarkGray
+                        dim(selected)
                     },
                 ),
                 Cell::from(Text::from(match oom_style_color(c) {
@@ -798,7 +810,10 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
         .max(1);
     let rows: Vec<Row> = detail_rows
         .iter()
-        .map(|row| match row {
+        .enumerate()
+        .map(|(i, row)| {
+            let selected = i == app.detail_sel;
+            match row {
             DetailRow::Group(g) => {
                 let frac = g.pss_kb as f64 / max_pss as f64;
                 let marker = if g.vmas.is_empty() {
@@ -824,11 +839,11 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
                 // would otherwise round to zero cells.
                 let denom = g.vmas.first().map(|v| v.pss_kb).unwrap_or(1).max(1);
                 let frac = v.pss_kb as f64 / denom as f64;
-                let dim = Style::new().fg(Color::DarkGray);
+                let vma_dim = Style::new().fg(dim(selected));
                 Row::new(vec![
                     Cell::from(Text::from(Span::styled(
                         truncate(&format!("    {:x}-{:x} {}", v.start, v.end, v.perms), 44),
-                        dim,
+                        vma_dim,
                     ))),
                     Cell::from(format!("{:>9}", fmt_kb(v.pss_kb))),
                     Cell::from(format!("{:>9}", fmt_kb(v.uss_kb))),
@@ -838,6 +853,7 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
                     Cell::from(""),
                     split_cell_scaled(v.uss_kb, v.pss_kb.saturating_sub(v.uss_kb), frac),
                 ])
+            }
             }
         })
         .collect();
