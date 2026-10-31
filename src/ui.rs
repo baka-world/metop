@@ -53,7 +53,13 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 chunks[1],
             );
         }
-        (true, _, View::Cgroups) => cgroup_view(f, chunks[1], app),
+        (true, _, View::Cgroups) => {
+            if app.drill.is_some() {
+                cgroup_drill(f, chunks[1], app);
+            } else {
+                cgroup_view(f, chunks[1], app);
+            }
+        }
         (true, _, _) => table_view(f, chunks[1], app),
         (false, ..) => {
             f.render_widget(
@@ -404,6 +410,104 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
     app.table_state = state;
 }
 
+fn cgroup_drill(f: &mut Frame, area: Rect, app: &mut App) {
+    let mut state = std::mem::take(&mut app.drill_state);
+    let (Some(snap), Some(path)) = (app.snap.as_ref(), app.drill.clone()) else {
+        app.drill_state = state;
+        return;
+    };
+    let members = app.cgroup_members();
+    let cg = snap.cgroups.iter().find(|c| c.path == path);
+    let chunks = Layout::vertical([Constraint::Length(2), Constraint::Min(4)]).split(area);
+
+    let summary = Line::from(vec![
+        Span::styled(
+            format!(" {} ", truncate_left(&path, 60)),
+            Style::new().add_modifier(Modifier::BOLD | Modifier::REVERSED),
+        ),
+        Span::raw(format!(
+            " current {} · {} procs in subtree · limit {} ",
+            cg.map(|c| fmt_kb(c.current_kb)).unwrap_or_else(|| "—".into()),
+            members.len(),
+            cg.and_then(|c| c.limit_kb)
+                .map(fmt_kb)
+                .unwrap_or_else(|| "max".into())
+        )),
+    ]);
+    f.render_widget(
+        Paragraph::new(summary).block(Block::new().borders(Borders::BOTTOM)),
+        chunks[0],
+    );
+
+    // Scale the share bar against the largest member, not total RAM: a 500 MB
+    // process in a 15 GB machine would otherwise round to zero cells.
+    let max_rss = members.iter().map(|r| r.rss_kb).max().unwrap_or(1).max(1);
+    let rows: Vec<Row> = members
+        .iter()
+        .map(|r| {
+            let pss = snap.pss.get(&r.pid);
+            let ratio = pss
+                .filter(|_| r.rss_kb > 0)
+                .map(|p| p.rollup.pss_kb as f64 / r.rss_kb as f64);
+            let frac = r.rss_kb as f64 / max_rss as f64;
+            let color = if frac > 0.15 {
+                Color::Red
+            } else if frac > 0.05 {
+                Color::Yellow
+            } else {
+                Color::Cyan
+            };
+            Row::new(vec![
+                Cell::from(format!("{:>7}", r.pid)),
+                Cell::from(truncate(&r.comm, 26)),
+                Cell::from(format!("{:>9}", fmt_kb(r.rss_kb))),
+                Cell::from(match pss {
+                    Some(p) => Text::from(format!("{:>9}", fmt_kb(p.rollup.pss_kb))),
+                    None => Text::from(Span::styled("        —", Style::new().fg(Color::DarkGray))),
+                }),
+                Cell::from(match ratio {
+                    Some(v) => format!("{:>7.0}%", v * 100.0),
+                    None => "       —".to_string(),
+                }),
+                bar_cell(frac, color, SHARE_W),
+            ])
+        })
+        .collect();
+
+    let header = Row::new(vec![
+        Cell::from(format!("{:>7}", "PID")),
+        Cell::from(format!("{:<26}", "COMM")),
+        Cell::from(format!("{:>9}", "RSS")),
+        Cell::from(format!("{:>9}", "PSS")),
+        Cell::from(format!("{:>8}", "PSS/RSS")),
+        Cell::from(" SHARE"),
+    ])
+    .style(Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(7),
+            Constraint::Length(26),
+            Constraint::Length(9),
+            Constraint::Length(9),
+            Constraint::Length(8),
+            Constraint::Length(SHARE_W as u16),
+        ],
+    )
+    .header(header)
+    .block(
+        Block::new()
+            .borders(Borders::ALL)
+            .title(" procs in cgroup subtree  (Esc back) "),
+    )
+    .row_highlight_style(Style::new().add_modifier(Modifier::REVERSED))
+    .highlight_symbol("▸");
+
+    f.render_stateful_widget(table, chunks[1], &mut state);
+    app.drill_state = state;
+}
+
 fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
     let mut state = std::mem::take(&mut app.cgroup_state);
     let Some(snap) = &app.snap else {
@@ -675,10 +779,15 @@ fn footer(f: &mut Frame, area: Rect, app: &App) {
             Span::styled("▏", Style::new().fg(Color::Yellow)),
             Span::styled("   Enter 应用 · Esc 取消", Style::new().fg(Color::DarkGray)),
         ])
+    } else if app.drill.is_some() {
+        Line::from(Span::styled(
+            " q quit │ j/k scroll │ Esc back to cgroups │ Tab procs ",
+            Style::new().fg(Color::DarkGray),
+        ))
     } else if app.view == View::Cgroups {
         Line::from(Span::styled(
             format!(
-                " q quit │ Tab procs │ j/k │ s sort ({}) │ r reverse │ f filter path ",
+                " q quit │ Tab procs │ j/k │ Enter list procs │ s sort ({}) │ r reverse │ f filter path ",
                 app.cgroup_sort.label()
             ),
             Style::new().fg(Color::DarkGray),

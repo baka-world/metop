@@ -55,6 +55,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | F16 | `--diff A.json B.json` 按 \|ΔRSS\| 排序输出，标注 new/gone，排除快照写者自身 | `tests/diff.rs`（4 个场景） |
 | F17 | `Tab` 切换 cgroup v2 视图：path/current/anon/file/kernel/slab/max/oom，按 current 或构成排序、可过滤 | `tab_switches_to_the_cgroup_view`、`cgroup_view_sorts_and_filters`、实机 174 个 cgroup |
 | F18 | `--json` 附带 `cgroups` 数组（path/current/anon/file/kernel/slab/shmem/limit/oom_kills） | `tests/json.rs` |
+| F19 | cgroup 视图 `Enter` 下钻出子树内进程（PID/COMM/RSS/PSS/占比），`Esc` 返回 | `cgroup_drill_lists_members_of_the_subtree`、`drill_down_uses_subtree_membership` |
 
 ## 5. 数据来源与精度
 
@@ -67,6 +68,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | 系统内存 | `/proc/meminfo` | `MemTotal - MemAvailable` | **绝不用进程行求和**：PSS 只覆盖一部分进程 |
 | VMA 分组 | `/proc/PID/smaps` | 按 `MMapPath` 聚合 | `Size` 是虚拟大小，含未提交的稀疏映射（见过 100 G 的 `[anon]`） |
 | cgroup 内存 | `/sys/fs/cgroup/**/memory.current` + `memory.stat` | `current ≈ anon + file + kernel` | **层级累计**，父子不可相加；`slab ⊂ kernel`、`shmem ⊂ file`；仅 cgroup v2 |
+| 进程归属 | `/proc/PID/cgroup` | `0::<path>` 单行解析 | 与 cgroup 列表同频（5 s）刷新；下钻按**子树**匹配（前缀 + 边界） |
 | PSS 构成 | `/proc/PID/smaps_rollup` | `Pss_Anon` / `Pss_File` / `Pss_Shmem`（三者之和 = `Pss`） | **逐 VMA 的 `smaps` 不输出这三个字段**，早期实现按 VMA 求和恒为 0——构成必须取 rollup |
 | swap-pss | `smaps_rollup` | `SwapPss`（按共享度加权） | 与 `Swap`（实际换出量）不是同一个量，UI 分开显示 |
 | THP / KSM | `smaps_rollup` | `AnonHugePages` / `KSM` | 大页会被算进 anon，KSM 合并的页仍计入 PSS |
@@ -95,7 +97,8 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | `g`/`G`、`Home`/`End` | 顶部 / 底部 |
 | `s` | 循环排序键（重置选择） |
 | `r` | 反向排序 |
-| `Tab` | 进程视图 ⇄ cgroup 视图（切换时退出详情） |
+| `Tab` | 进程视图 ⇄ cgroup 视图（切换时退出详情与下钻） |
+| `Enter`（cgroup） | 列出该 cgroup 子树内的进程；`Esc` 返回列表 |
 | `f` | 过滤输入；`Enter` 应用，`Esc` 取消（进程视图过滤名/PID，cgroup 视图过滤路径，详情页过滤映射名） |
 | `Esc`（详情） | 有映射过滤时先清除过滤，再按一次退出详情 |
 | `Enter` | 进入详情；在详情内展开/收起映射（`z`/`Z` 全部收起/展开） |
@@ -115,7 +118,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 
 ## 9. 里程碑
 
-- **M1（当前）**：两层采样 + 进程表 + VMA 聚合详情 + 趋势 + 过滤/排序 + 37 个测试 + 实机验证。
+- **M1（当前）**：两层采样 + 进程表 + VMA 聚合详情 + 趋势 + 过滤/排序 + 40 个测试 + 实机验证。
 - **M1.1（已完成，见 commit）**：PSS 覆盖率策略——预算按"未知优先、其后最旧优先"分配；EACCES 负缓存 30 s；分母改为可读进程数；陈旧值加 `~` 后缀。
 - **M2（进行中）**：
   - 已完成：PSS 构成（anon/file/shmem/swap-pss/THP/KSM）；映射过滤；`--json` 快照（稳定排序、schema 版本、`_kb` 单位）。
@@ -124,4 +127,5 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
   - 备忘：`wora-observability-linux-mm` 只在需要 VMA 级元数据（KSM 明细、pagemap、UFFD）时才引入；`procfs` 已经覆盖当前全部字段。
 - **M3（进行中）**：
   - 已完成：cgroup v2 内存视图（`Tab`）、`--json` 的 `cgroups` 数组、`--diff` 文本对比。
-  - 待做：cgroup → 进程下钻（需要 pid→cgroup 映射，`/proc/PID/cgroup`）；`memory.events` 的 OOM 历史；diff 的阈值/过滤开关。
+  - 已完成（第三轮）：cgroup → 进程下钻（子树匹配，`/proc/PID/cgroup` 每 5 s 刷新）。
+  - 待做：`memory.events` 的 OOM 历史曲线；diff 的阈值/过滤开关；`--json` 字段筛选。

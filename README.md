@@ -51,7 +51,7 @@ mtop diff  over 4s  (437 -> 438 procs)   15 grew, 3 shrank, 1 new, 0 gone
 | `s` / `r` | 切换排序键 / 反向（cgroup 视图按 CURRENT/ANON/FILE/SLAB 排序） |
 | `Tab` | 进程视图 ⇄ cgroup 视图 |
 | `f` | 过滤（进程名 / PID / cgroup 路径；详情页中过滤映射名） |
-| `Enter` | 进入详情；在详情内展开/收起当前映射（逐 VMA） |
+| `Enter` | 进程视图：进入详情；详情内展开/收起映射；cgroup 视图：列出子树内进程 |
 | `z` / `Z`（详情） | 全部收起 / 全部展开 |
 | `Esc` | 清除过滤 / 返回 |
 | `q` | 退出 |
@@ -84,6 +84,16 @@ mtop diff  over 4s  (437 -> 438 procs)   15 grew, 3 shrank, 1 new, 0 gone
 - 校验恒等式：`current ≈ anon + file + kernel`（`slab` 属于 `kernel`，`shmem` 属于 `file`）。
 - `MAX` 显示 `max` 表示无限制；条按 `current/limit` 画，无限制时按最大 cgroup 归一。
 - 仅支持 cgroup v2（需要 `memory.current`）；v1 或未启用 memory controller 时视图会说明原因。
+- `Enter` 下钻：列出该 cgroup **子树**内的进程（PID/COMM/RSS/PSS/PSS÷RSS），按 RSS 排序；`Esc` 返回。pid→cgroup 映射来自 `/proc/PID/cgroup`，与 cgroup 列表一起每 5 s 刷新。
+
+```
+ /user.slice  current 9.92G · 210 procs in subtree · limit max
+┌ procs in cgroup subtree  (Esc back) ──────────────────────────────────────────────┐
+│     PID COMM                             RSS       PSS  PSS/RSS  SHARE             │
+│▸ 579585 chrome                          520M      343M      66% ██████             │
+│  623313 omp                             395M      346M      88% █████              │
+└───────────────────────────────────────────────────────────────────────────────────┘
+```
 
 ## 详情页看什么
 
