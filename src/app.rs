@@ -95,6 +95,9 @@ pub struct App {
     /// PSI `some avg10` over time per cgroup, stored as percent*10 for the
     /// sparkline (u64) with a fixed 0-1000 scale.
     pub cgroup_history: HashMap<String, VecDeque<u64>>,
+    /// OOM kills per scan per cgroup (5 s cadence, 120 samples = 10 min).
+    pub oom_history: HashMap<String, VecDeque<u64>>,
+    last_scan_seq: u64,
     last_sent: Option<(Option<u32>, bool)>,
     started: bool,
     pending_focus: Option<u32>,
@@ -127,6 +130,8 @@ impl App {
             detail_state: TableState::default(),
             history: HashMap::new(),
             cgroup_history: HashMap::new(),
+            oom_history: HashMap::new(),
+            last_scan_seq: 0,
             last_sent: None,
             started: false,
             pending_focus: None,
@@ -279,18 +284,30 @@ impl App {
         }
         self.history.retain(|pid, _| seen.contains(pid));
 
-        let mut cg_seen: std::collections::HashSet<&str> =
-            std::collections::HashSet::with_capacity(snap.cgroups.len());
-        for cg in &snap.cgroups {
-            cg_seen.insert(cg.path.as_str());
-            let h = self.cgroup_history.entry(cg.path.clone()).or_default();
-            h.push_back((cg.psi_some10.max(0.0) * 10.0).round() as u64);
-            while h.len() > HISTORY {
-                h.pop_front();
+        // The cgroup list only changes on the 5 s scan; sampling it every tick
+        // would record the same value five times and shrink the window.
+        if snap.scan_seq != self.last_scan_seq && !snap.cgroups.is_empty() {
+            self.last_scan_seq = snap.scan_seq;
+            let mut cg_seen: std::collections::HashSet<&str> =
+                std::collections::HashSet::with_capacity(snap.cgroups.len());
+            for cg in &snap.cgroups {
+                cg_seen.insert(cg.path.as_str());
+                let h = self.cgroup_history.entry(cg.path.clone()).or_default();
+                h.push_back((cg.psi_some10.max(0.0) * 10.0).round() as u64);
+                while h.len() > HISTORY {
+                    h.pop_front();
+                }
+                let o = self.oom_history.entry(cg.path.clone()).or_default();
+                o.push_back(cg.oom_recent);
+                while o.len() > HISTORY {
+                    o.pop_front();
+                }
             }
+            self.cgroup_history
+                .retain(|path, _| cg_seen.contains(path.as_str()));
+            self.oom_history
+                .retain(|path, _| cg_seen.contains(path.as_str()));
         }
-        self.cgroup_history
-            .retain(|path, _| cg_seen.contains(path.as_str()));
         self.snap = Some(snap);
         // A different process means a different mapping tree: reset expansion.
         let pid = self.snap.as_ref().and_then(|s| s.detail.as_ref()).map(|d| d.pid);

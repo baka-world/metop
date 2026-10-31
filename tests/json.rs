@@ -124,3 +124,34 @@ fn cgroups_are_exported_when_the_system_has_them() {
         first["path"]
     );
 }
+
+#[test]
+fn fields_projection_keeps_only_requested_paths() {
+    let full = run(&["--json"]);
+    let filtered = run(&["--json", "--fields", "procs.pid,procs.rss_kb"]);
+
+    assert!(filtered.get("mem").is_none(), "unselected section leaked");
+    assert_eq!(filtered["schema"], "mtop.snapshot.v1");
+    assert!(filtered["at_unix_ms"].is_u64());
+    let proc = &filtered["procs"][0];
+    assert!(proc["pid"].is_u64());
+    assert!(proc["rss_kb"].is_u64());
+    assert!(proc.get("comm").is_none(), "unselected proc field leaked");
+
+    // The unfiltered document still has the sections, so the filter is what
+    // shrank it (measured: 194 KB -> 23 KB for two fields on this machine).
+    assert!(full["mem"]["total_kb"].is_u64());
+    assert!(full["procs"][0].get("comm").is_some());
+}
+
+#[test]
+fn unknown_field_paths_are_rejected() {
+    let out = Command::new(env!("CARGO_BIN_EXE_mtop"))
+        .args(["--json", "--fields", "procs.nope"])
+        .output()
+        .expect("spawn mtop");
+    assert_eq!(out.status.code(), Some(2));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("unknown field path"), "unhelpful error: {err}");
+    assert!(err.contains("top-level keys"), "no hint about valid keys: {err}");
+}

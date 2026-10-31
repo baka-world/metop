@@ -29,6 +29,7 @@ struct State {
     cgroups: Vec<crate::cgroup::CgroupMem>,
     pid_cgroup: std::sync::Arc<HashMap<u32, String>>,
     oom_prev: HashMap<String, u64>,
+    scan_seq: u64,
 }
 
 impl State {
@@ -46,6 +47,7 @@ impl State {
             cgroups: crate::cgroup::scan(std::path::Path::new(crate::cgroup::ROOT)),
             pid_cgroup: std::sync::Arc::new(crate::cgroup::pid_map()),
             oom_prev: HashMap::new(),
+            scan_seq: 1,
         }
     }
 }
@@ -256,6 +258,7 @@ fn tick(st: &mut State, pss_budget: Duration) -> Snapshot {
             .iter()
             .map(|c| (c.path.clone(), c.oom_kills))
             .collect();
+        st.scan_seq = st.scan_seq.wrapping_add(1);
         st.pid_cgroup = std::sync::Arc::new(crate::cgroup::pid_map());
     }
 
@@ -268,6 +271,7 @@ fn tick(st: &mut State, pss_budget: Duration) -> Snapshot {
         pss: st.pss.clone(),
         mem: st.mem.clone(),
         pressure: procfs::read_pressure(),
+        scan_seq: st.scan_seq,
         cgroups: st.cgroups.clone(),
         pid_cgroup: st.pid_cgroup.clone(),
         detail,

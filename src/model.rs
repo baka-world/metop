@@ -81,6 +81,9 @@ pub struct Snapshot {
     pub mem: MemInfo,
     /// System-wide PSI for memory (/proc/pressure/memory), read every tick.
     pub pressure: Pressure,
+    /// Increments on every slow scan (cgroups/pid map). The UI uses it to avoid
+    /// pushing the same 5 s sample 5 times at 1 Hz.
+    pub scan_seq: u64,
     /// cgroup v2 memory accounting (empty on v1 or when unreadable).
     pub cgroups: Vec<CgroupMem>,
     /// pid -> cgroup path, refreshed on the slow cadence; Arc so the per-tick

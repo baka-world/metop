@@ -60,6 +60,8 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | F21 | `--diff --min-delta SIZE --top N`：过滤小变化、限制行数；非法值退出码 2 | `tests/diff.rs`（阈值/条数/坏参数） |
 | F22 | PSI：表头显示系统 `some/full avg10`，cgroup 视图有 `PSI10` 列并按 5%/20% 上色，右上角画选中项走势（固定 0–100% 刻度） | `pressure_parses_some_and_full`、`cgroup_psi_history_is_recorded_and_plotted`、渲染断言 `psi 1.5/0.2%` 与 `12.5%` |
 | F23 | `--json` 输出 `pressure{some10,full10}` 与每个 cgroup 的 `psi_some10/psi_full10` | `tests/json.rs` |
+| F24 | `--json --fields a.b,c` 点号路径投影（数组按记录投影、null 段保留、`schema`/`at_unix_ms` 恒在、未知路径退出 2） | `tests/json.rs` + 4 个投影单测 |
+| F25 | OOM 时间序列：每个扫描点采样 `oom_recent`，120 点窗口，下钻页用文本 sparkline 呈现 | `text_spark_renders_a_normalised_series`、`cgroup_psi_history_is_recorded_and_plotted`、实机 `oom ▁▁▁▁ 0 total` |
 
 ## 5. 数据来源与精度
 
@@ -131,20 +133,20 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | 单文件分发 | `cargo build --release` → 1.4 MB，无运行时依赖 |
 | LICENSE | MIT（与 `Cargo.toml` 一致） |
 | `--version` / `--help` | 已提供，`tests/cli.rs` 覆盖 |
-| **未完成** | `--json` 字段筛选；OOM 时间序列（PSI 已有走势）；CI 流水线；git remote/发布产物；root 路径实机验证 |
+| **未完成** | CI 流水线；git remote/发布产物；root 路径实机验证 |
 
 ## 10. 里程碑
 
-- **M1（当前）**：两层采样 + 进程表 + VMA 聚合详情 + 趋势 + 过滤/排序 + 48 个测试 + 实机验证。
+- **M1（当前）**：两层采样 + 进程表 + VMA 聚合详情 + 趋势 + 过滤/排序 + 55 个测试 + 实机验证。
 - **M1.1（已完成，见 commit）**：PSS 覆盖率策略——预算按"未知优先、其后最旧优先"分配；EACCES 负缓存 30 s；分母改为可读进程数；陈旧值加 `~` 后缀。
 - **M2（进行中）**：
   - 已完成：PSS 构成（anon/file/shmem/swap-pss/THP/KSM）；映射过滤；`--json` 快照（稳定排序、schema 版本、`_kb` 单位）。
   - 已完成（第二轮）：VMA 组展开到单行；`--diff` 文本视图（含 `self_pid` 排除）。
-  - 待做：`--json` 的字段筛选参数；diff 的阈值/过滤开关。
+  - 已完成（第六轮）：`--json --fields` 投影；OOM 时间序列（扫描序号采样）。
   - 备忘：`wora-observability-linux-mm` 只在需要 VMA 级元数据（KSM 明细、pagemap、UFFD）时才引入；`procfs` 已经覆盖当前全部字段。
 - **M3（进行中）**：
   - 已完成：cgroup v2 内存视图（`Tab`）、`--json` 的 `cgroups` 数组、`--diff` 文本对比。
   - 已完成（第三轮）：cgroup → 进程下钻（子树匹配，`/proc/PID/cgroup` 每 5 s 刷新）。
   - 已完成（第四轮）：OOM 增量标记（`▲` + 标题汇总）；`--diff --min-delta/--top`。
   - 已完成（第五轮）：PSI（系统级表头 + cgroup `PSI10` 列 + JSON）。
-  - 待做：OOM/PSI 时间序列（需要环形缓冲）；`--json` 字段筛选。
+  - 已完成（第六轮）：OOM 时间序列（`scan_seq` 采样，120 点）；`--json --fields` 字段投影。

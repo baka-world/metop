@@ -25,6 +25,7 @@ cargo build --release
 ./target/release/mtop --pid 1234 # 启动即选中某个进程
 ./target/release/mtop --json     # 一次性快照（可 diff、可 jq）
 ./target/release/mtop --json --pid 1234   # 附带该进程的 VMA 明细
+mtop --json --fields procs.pid,procs.rss_kb,procs.pss.pss_kb   # 只导出需要的字段
 mtop --diff a.json b.json        # 比较两份快照，按 |ΔRSS| 排序
 mtop --diff a.json b.json --min-delta 50M --top 10   # 只看显著变化
 mtop --version
@@ -41,6 +42,8 @@ mtop diff  over 4s  (437 -> 438 procs)   15 grew, 3 shrank, 1 new, 0 gone
   613254 chrome                       -1.2M     -1.2M      348M      171M
     2796 gnome-shell                  +0.2M     +0.2M      288M      235M
 ```
+
+`--fields` 接受点号路径（`procs.pss.pss_kb` 这种嵌套也行），`schema` 与 `at_unix_ms` 始终保留；未知路径直接退出码 2 并列出可用顶层键。本机实测：全量 194 KB → 三个字段 37 KB。
 
 写快照的那个 `mtop` 进程会被记录为 `self_pid` 并在 diff 中自动排除——否则每次运行都是"new 3 MB / gone 3 MB"的假噪声。`--min-delta` 接受 `50M` / `512k` / `2G` / 纯数字（kB）。
 
@@ -88,7 +91,7 @@ mtop diff  over 4s  (437 -> 438 procs)   15 grew, 3 shrank, 1 new, 0 gone
 - `OOM` 列是累计 `oom_kill`；采样间隔内新增时显示 `2▲` 并在标题给出 `oom +N since last sample`。第一次扫描记为 0 增量，不会误报。
 - `PSI10` 是 `memory.pressure` 的 `some avg10`：过去 10 秒里有任务因内存卡住的时长占比。右上角 sparkline 画选中 cgroup 的 PSI 走势（固定 0–100% 刻度，避免 2% 就看成像满格）。**它比 OOM 更早预警**——OOM 是已经出事，PSI 是正在变慢。表头那行给的是系统级 `/proc/pressure/memory`（some/full）。阈值 5% / 20% 只是经验值，不是内核定义。
 - 仅支持 cgroup v2（需要 `memory.current`）；v1 或未启用 memory controller 时视图会说明原因。
-- `Enter` 下钻：列出该 cgroup **子树**内的进程（PID/COMM/RSS/PSS/PSS÷RSS），按 RSS 排序；`Esc` 返回。pid→cgroup 映射来自 `/proc/PID/cgroup`，与 cgroup 列表一起每 5 s 刷新。
+- `Enter` 下钻：列出该 cgroup **子树**内的进程（PID/COMM/RSS/PSS/PSS÷RSS），按 RSS 排序；`Esc` 返回。下钻页第二行是 OOM 时间序列（每个 5 s 扫描一个采样点，120 点 = 10 分钟窗口）。pid→cgroup 映射来自 `/proc/PID/cgroup`，与 cgroup 列表一起每 5 s 刷新。
 
 ```
  /user.slice  current 9.92G · 210 procs in subtree · limit max

@@ -105,6 +105,7 @@ fn snapshot() -> Snapshot {
         sweep_ms: 18.0,
         pss_ms: 42.0,
         pressure: mtop::procfs::Pressure { some10: 1.5, full10: 0.25 },
+        scan_seq: 1,
         pid_cgroup: Arc::new(HashMap::from([
             (100, "/user.slice/user-1000.slice/session-2.scope".to_string()),
             (200, "/system.slice".to_string()),
@@ -433,6 +434,8 @@ fn cgroup_drill_lists_members_of_the_subtree() {
 
     let text = render(&mut app);
     assert!(text.contains("procs in cgroup subtree"), "drill view missing:\n{text}");
+    assert!(text.contains("oom "), "oom series missing from the drill summary:\n{text}");
+    assert!(text.contains("total"), "oom totals missing:\n{text}");
     assert!(text.contains("chrome"), "member missing:\n{text}");
     // The ratio must survive its column width and the share bar must not be
     // scaled against total RAM (which rounds a 500 MB row to zero cells).
@@ -465,6 +468,7 @@ fn cgroup_psi_history_is_recorded_and_plotted() {
     let mut first = snapshot();
     first.cgroups[0].psi_some10 = 3.0;
     let mut second = snapshot();
+    second.scan_seq = 2;
     second.cgroups[0].psi_some10 = 7.5;
 
     let mut app = App::new(None);
