@@ -23,8 +23,18 @@ Linux 内存分析 TUI：按 RSS / **PSS** / **USS** 看进程，按映射聚合
 
 ## 安装
 
+预编译包由 GitHub Actions 构建并随 release 发布：`amd64` / `arm64` 的 **.deb**、**.rpm**，以及静态 musl **tar.gz**（无运行时依赖）。每个包都附 SHA256 校验和。
+
 ```sh
-# 预编译静态二进制（musl，无运行时依赖）
+# Debian / Ubuntu（arm64 用 _arm64.deb）
+gh release download v0.1.0 --repo baka-world/mtop --pattern '*.deb'
+sudo dpkg -i mtop_0.1.0-1_amd64.deb
+
+# Fedora / RHEL / openSUSE（aarch64 用 .aarch64.rpm）
+gh release download v0.1.0 --repo baka-world/mtop --pattern '*.rpm'
+sudo rpm -i mtop-0.1.0-1.x86_64.rpm
+
+# 任意发行版（静态 musl）
 gh release download v0.1.0 --repo baka-world/mtop --pattern '*x86_64-unknown-linux-musl.tar.gz'
 tar -xzf mtop-v0.1.0-x86_64-unknown-linux-musl.tar.gz
 sudo install -m755 mtop-v0.1.0-x86_64-unknown-linux-musl /usr/local/bin/mtop

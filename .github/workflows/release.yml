@@ -32,33 +32,53 @@ jobs:
       # cross runs the build in a container with the right C toolchain; musl
       # targets produce a static binary that needs nothing on the target host.
       - uses: taiki-e/install-action@cross
+      - uses: taiki-e/install-action@cargo-deb
+
+      - name: Install cargo-generate-rpm
+        run: cargo install cargo-generate-rpm --locked
 
       - name: Build
         run: cross build --release --locked --target ${{ matrix.target }}
 
-      - name: Package
+      - name: Package tarball
         run: |
           set -euo pipefail
           name="mtop-${GITHUB_REF_NAME}-${{ matrix.target }}"
           mkdir -p dist
           cp "target/${{ matrix.target }}/release/mtop" "dist/$name"
           tar -C dist -czf "$name.tar.gz" "$name"
-          sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
           rm -r dist
 
-      - name: Smoke test (x86_64 only, runs on this host)
+      - name: Package .deb
+        run: cargo deb --no-build --target ${{ matrix.target }}
+
+      - name: Package .rpm
+        run: |
+          mkdir -p "target/${{ matrix.target }}/generate-rpm"
+          cargo generate-rpm --target ${{ matrix.target }} --output "target/${{ matrix.target }}/generate-rpm"
+
+      - name: Smoke test (x86_64 runs on this host)
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: |
           set -euo pipefail
           tar -xzf "mtop-${GITHUB_REF_NAME}-${{ matrix.target }}.tar.gz"
           "./mtop-${GITHUB_REF_NAME}-${{ matrix.target }}" --version
+          dpkg-deb -c target/debian/*.deb | grep -q 'usr/bin/mtop'
+
+      - name: Collect assets and checksums
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          cp *.tar.gz assets/
+          cp target/debian/*.deb assets/
+          cp "target/${{ matrix.target }}/generate-rpm/"*.rpm assets/
+          (cd assets && sha256sum * > "SHA256SUMS-${{ matrix.target }}")
+          ls -l assets
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}
-          path: |
-            *.tar.gz
-            *.sha256
+          path: assets/*
 
   release:
     name: publish release
@@ -68,14 +88,16 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
+          path: assets
 
       - name: Create release with assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          ls -l assets
           gh release create "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" \
             --generate-notes \
-            *.tar.gz *.sha256
+            assets/*
