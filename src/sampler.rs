@@ -29,6 +29,7 @@ struct State {
     mem: procfs::MemInfo,
     cgroups: Vec<crate::cgroup::CgroupMem>,
     pid_cgroup: std::sync::Arc<HashMap<u32, String>>,
+    pid_exe: std::sync::Arc<HashMap<u32, String>>,
     oom_prev: HashMap<String, u64>,
     scan_seq: u64,
 }
@@ -48,6 +49,7 @@ impl State {
             mem: procfs::read_meminfo(),
             cgroups: crate::cgroup::scan(std::path::Path::new(crate::cgroup::ROOT)),
             pid_cgroup: std::sync::Arc::new(crate::cgroup::pid_map()),
+            pid_exe: std::sync::Arc::new(procfs::pid_exe()),
             oom_prev: HashMap::new(),
             scan_seq: 1,
         }
@@ -276,6 +278,7 @@ fn tick(st: &mut State, pss_budget: Duration) -> Snapshot {
             .collect();
         st.scan_seq = st.scan_seq.wrapping_add(1);
         st.pid_cgroup = std::sync::Arc::new(crate::cgroup::pid_map());
+        st.pid_exe = std::sync::Arc::new(procfs::pid_exe());
     }
 
     let fresh: Vec<&PssInfo> = st.pss.values().filter(|p| p.at.elapsed() < PSS_MAX_AGE).collect();
@@ -290,6 +293,7 @@ fn tick(st: &mut State, pss_budget: Duration) -> Snapshot {
         scan_seq: st.scan_seq,
         cgroups: st.cgroups.clone(),
         pid_cgroup: st.pid_cgroup.clone(),
+        pid_exe: st.pid_exe.clone(),
         detail,
         detail_error: if st.want_detail { st.detail_error.clone() } else { None },
         sweep_ms,

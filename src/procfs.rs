@@ -262,6 +262,30 @@ pub fn read_smaps(pid: u32) -> Result<SmapsReport, procfs::ProcError> {
     Ok(report)
 }
 
+/// pid -> /proc/<pid>/exe. ~450 readlinks cost a few ms, so this runs on the
+/// slow (5 s) cadence next to the cgroup map, never in the 1 Hz sweep.
+pub fn pid_exe() -> HashMap<u32, String> {
+    let mut out = HashMap::new();
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return out;
+    };
+    for entry in entries.flatten() {
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|s| s.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        if let Ok(path) = std::fs::read_link(format!("/proc/{pid}/exe"))
+            && let Some(text) = path.to_str()
+        {
+            out.insert(pid, text.to_string());
+        }
+    }
+    out
+}
+
 pub fn read_cmdline(pid: u32) -> String {
     Process::new(pid as i32)
         .and_then(|p| p.cmdline())

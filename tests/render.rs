@@ -108,6 +108,12 @@ fn snapshot() -> Snapshot {
         pss_ms: 42.0,
         pressure: mtop::procfs::Pressure { some10: 1.5, full10: 0.25 },
         scan_seq: 1,
+        pid_exe: Arc::new(HashMap::from([
+            (100, "/opt/google/chrome/chrome".to_string()),
+            (200, "/usr/bin/node".to_string()),
+            (300, "/opt/google/chrome/chrome".to_string()),
+            (400, "/usr/sbin/root-daemon".to_string()),
+        ])),
         pid_cgroup: Arc::new(HashMap::from([
             (100, "/user.slice/user-1000.slice/session-2.scope".to_string()),
             (200, "/system.slice".to_string()),
@@ -566,4 +572,57 @@ fn highlight_never_falls_back_to_the_terminal_background() {
         (0..buf.area.width).all(|x| !buf[(x, y)].modifier.contains(Modifier::REVERSED)),
         "selected row still relies on reverse video"
     );
+}
+
+#[test]
+fn apps_view_groups_processes_and_drills_into_the_process_table() {
+    use mtop::app::View;
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    let mut app = App::new(None);
+    app.on_snapshot(snapshot());
+
+    // procs -> cgroups -> apps
+    app.on_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    app.on_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert!(matches!(app.view, View::Apps));
+
+    let groups: Vec<String> = app.visible_apps().iter().map(|g| g.name.clone()).collect();
+    assert_eq!(groups[0], "chrome", "biggest app first: {groups:?}");
+    assert!(groups.contains(&"others (2)".to_string()), "tail not collapsed: {groups:?}");
+
+    let text = render(&mut app);
+    assert!(text.contains("apps"), "apps view title missing:\n{text}");
+    assert!(text.contains("chrome"), "tile label missing:\n{text}");
+
+    app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(matches!(app.view, View::Procs), "Enter must drill into procs");
+    assert!(app.pid_filter.is_some());
+    let pids: Vec<u32> = app.visible().iter().map(|r| r.pid).collect();
+    assert_eq!(pids, vec![100, 300], "only chrome processes: {pids:?}");
+    assert!(render(&mut app).contains("app: chrome"));
+
+    app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(app.pid_filter.is_none(), "Esc clears the app drill filter");
+    assert_eq!(app.visible().len(), 5);
+}
+
+#[test]
+fn apps_view_falls_back_to_a_list_when_narrow() {
+    let mut app = App::new(None);
+    app.on_snapshot(snapshot());
+    app.view = mtop::app::View::Apps;
+
+    let mut term = Terminal::new(TestBackend::new(80, 20)).unwrap();
+    term.draw(|f| mtop::ui::draw(f, &mut app)).unwrap();
+    let buf = term.backend().buffer();
+    let mut text = String::new();
+    for y in 0..buf.area.height {
+        for x in 0..buf.area.width {
+            text.push_str(buf[(x, y)].symbol());
+        }
+        text.push('\n');
+    }
+    assert!(text.contains("APP"), "list fallback header missing:\n{text}");
+    assert!(text.contains("PROCS"), "list fallback columns missing:\n{text}");
 }

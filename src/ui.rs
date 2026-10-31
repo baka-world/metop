@@ -96,6 +96,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 chunks[1],
             );
         }
+        (true, _, View::Apps) => apps_view(f, chunks[1], app),
         (true, _, View::Cgroups) => {
             if app.drill.is_some() {
                 cgroup_drill(f, chunks[1], app);
@@ -205,6 +206,17 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
 
     // RSS trend of the focused process.
     let (label, data): (String, Vec<u64>) = match app.view {
+        View::Apps => match app.selected_app() {
+            Some(g) => (
+                format!(
+                    " {} {}",
+                    truncate(&g.name, 24),
+                    fmt_kb(app.app_metric.value(g))
+                ),
+                Vec::new(),
+            ),
+            None => (" apps".into(), Vec::new()),
+        },
         View::Cgroups => match app.visible_cgroups().get(app.cgroup_sel) {
             Some(cg) => {
                 let hist = app
@@ -463,6 +475,9 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
         if app.desc { "↓" } else { "↑" },
         if app.filter.is_empty() { "-" } else { app.filter.as_str() }
     );
+    if let Some(name) = &app.pid_filter_name {
+        sort_label.push_str(&format!("  app: {name} (Esc clears) "));
+    }
     if rank_incomplete {
         sort_label.push_str(&format!(
             " pss {}/{} · ranking incomplete ",
@@ -491,6 +506,135 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
 
     f.render_stateful_widget(table, area, &mut state);
     app.table_state = state;
+}
+
+/// Dark, low-saturation tile fills: readable with the default foreground and
+/// distinguishable from each other without shouting.
+const APP_PALETTE: [Color; 6] = [
+    Color::Rgb(46, 64, 94),
+    Color::Rgb(60, 47, 82),
+    Color::Rgb(36, 72, 72),
+    Color::Rgb(82, 62, 42),
+    Color::Rgb(52, 72, 46),
+    Color::Rgb(78, 47, 58),
+];
+
+fn apps_view(f: &mut Frame, area: Rect, app: &mut App) {
+    let apps: Vec<crate::apps::AppGroup> = app.visible_apps().into_iter().cloned().collect();
+    if apps.is_empty() {
+        f.render_widget(
+            Paragraph::new("no app groups (no PSS data yet)")
+                .block(Block::new().borders(Borders::ALL).title(" apps ")),
+            area,
+        );
+        return;
+    }
+    let total: u64 = apps.iter().map(|g| app.app_metric.value(g)).sum();
+    let title = format!(
+        " apps  metric {}  filter {}  ({} groups · {}) ",
+        app.app_metric.label(),
+        if app.filter.is_empty() { "-" } else { app.filter.as_str() },
+        apps.len(),
+        fmt_kb(total)
+    );
+    let block = Block::new().borders(Borders::ALL).title(title);
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    // Narrow or short terminals get a list: a treemap under ~100x14 has more
+    // borders than data.
+    if inner.width < 100 || inner.height < 14 {
+        apps_list(f, inner, app, &apps);
+        return;
+    }
+
+    let values: Vec<u64> = apps.iter().map(|g| app.app_metric.value(g)).collect();
+    let rects = crate::apps::squarify(&values, inner);
+    for (i, (g, r)) in apps.iter().zip(rects.iter()).enumerate() {
+        if r.width == 0 || r.height == 0 {
+            continue;
+        }
+        let selected = i == app.app_sel;
+        let bg = if selected {
+            HL_BG
+        } else {
+            APP_PALETTE[i % APP_PALETTE.len()]
+        };
+        let buf = f.buffer_mut();
+        buf.set_style(*r, Style::new().bg(bg));
+        if r.width >= 8 && r.height >= 2 {
+            let name = truncate(&g.name, (r.width as usize).saturating_sub(2));
+            let style = if selected {
+                Style::new().bg(bg).add_modifier(Modifier::BOLD)
+            } else {
+                Style::new().bg(bg)
+            };
+            buf.set_stringn(
+                r.x + 1,
+                r.y,
+                name,
+                (r.width as usize).saturating_sub(2),
+                style,
+            );
+        }
+        if r.width >= 12 && r.height >= 3 {
+            let sub = format!("{} · {}p", fmt_kb(app.app_metric.value(g)), g.procs);
+            buf.set_stringn(
+                r.x + 1,
+                r.y + 1,
+                sub,
+                (r.width as usize).saturating_sub(2),
+                Style::new().bg(bg).fg(Color::Gray),
+            );
+        }
+    }
+}
+
+fn apps_list(f: &mut Frame, area: Rect, app: &mut App, apps: &[crate::apps::AppGroup]) {
+    let mut state = std::mem::take(&mut app.app_state);
+    let max = apps
+        .iter()
+        .map(|g| app.app_metric.value(g))
+        .max()
+        .unwrap_or(1)
+        .max(1);
+    let rows: Vec<Row> = apps
+        .iter()
+        .enumerate()
+        .map(|(i, g)| {
+            let frac = app.app_metric.value(g) as f64 / max as f64;
+            Row::new(vec![
+                Cell::from(truncate(&g.name, 26)),
+                Cell::from(format!("{:>9}", fmt_kb(app.app_metric.value(g)))),
+                Cell::from(format!("{:>5}", g.procs)),
+                Cell::from(format!("{:>9}", fmt_kb(g.pss_kb))),
+                bar_cell(frac, APP_PALETTE[i % APP_PALETTE.len()], 10),
+            ])
+        })
+        .collect();
+    let header = Row::new(vec![
+        Cell::from(format!("{:<26}", "APP")),
+        Cell::from(format!("{:>9}", app.app_metric.label())),
+        Cell::from(format!("{:>5}", "PROCS")),
+        Cell::from(format!("{:>9}", "PSS")),
+        Cell::from(" SHARE"),
+    ])
+    .style(Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(26),
+            Constraint::Length(9),
+            Constraint::Length(5),
+            Constraint::Length(9),
+            Constraint::Length(10),
+        ],
+    )
+    .header(header)
+    .row_highlight_style(highlight_style())
+    .highlight_symbol("▸");
+    f.render_stateful_widget(table, area, &mut state);
+    app.app_state = state;
 }
 
 fn cgroup_drill(f: &mut Frame, area: Rect, app: &mut App) {
@@ -907,6 +1051,14 @@ fn footer(f: &mut Frame, area: Rect, app: &App) {
             Span::styled("▏", Style::new().fg(Color::Yellow)),
             Span::styled("   Enter 应用 · Esc 取消", Style::new().fg(Color::DarkGray)),
         ])
+    } else if app.view == View::Apps {
+        Line::from(Span::styled(
+            format!(
+                " q quit │ Tab views │ j/k select │ Enter drill into procs │ s metric ({}) │ f filter │ Esc clear ",
+                app.app_metric.label()
+            ),
+            Style::new().fg(Color::DarkGray),
+        ))
     } else if app.drill.is_some() {
         Line::from(Span::styled(
             " q quit │ j/k scroll │ Esc back to cgroups │ Tab procs ",

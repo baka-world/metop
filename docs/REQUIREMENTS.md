@@ -61,6 +61,9 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | F22 | PSI：表头显示系统 `some/full avg10`，cgroup 视图有 `PSI10` 列并按 5%/20% 上色，右上角画选中项走势（固定 0–100% 刻度） | `pressure_parses_some_and_full`、`cgroup_psi_history_is_recorded_and_plotted`、渲染断言 `psi 1.5/0.2%` 与 `12.5%` |
 | F23 | `--json` 输出 `pressure{some10,full10}` 与每个 cgroup 的 `psi_some10/psi_full10` | `tests/json.rs` |
 | F24 | `--json --fields a.b,c` 点号路径投影（数组按记录投影、null 段保留、`schema`/`at_unix_ms` 恒在、未知路径退出 2） | `tests/json.rs` + 4 个投影单测 |
+| F26 | apps 视图：面积 ∝ 应用内存，分组按 cgroup app scope → exe → comm，长尾折叠为 `others` | `apps.rs` 单测（scope 解析/合并/折叠）、`apps_view_groups_processes_and_drills_into_the_process_table` |
+| F27 | apps 视图选中并用 `Enter` 下钻到该应用的进程（`Esc` 清除过滤） | 同上 + `selected_row_is_tinted...` 同源的渲染测试 |
+| F28 | treemap 布局不变量：在界内、互不重叠、面积成比例 | `treemap_tiles_stay_inside_and_do_not_overlap`、`treemap_area_is_proportional_within_a_few_percent` |
 | F25 | OOM 时间序列：每个扫描点采样 `oom_recent`，120 点窗口，下钻页用文本 sparkline 呈现 | `text_spark_renders_a_normalised_series`、`cgroup_psi_history_is_recorded_and_plotted`、实机 `oom ▁▁▁▁ 0 total` |
 
 ## 5. 数据来源与精度
@@ -74,6 +77,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | 系统内存 | `/proc/meminfo` | `MemTotal - MemAvailable` | **绝不用进程行求和**：PSS 只覆盖一部分进程 |
 | VMA 分组 | `/proc/PID/smaps` | 按 `MMapPath` 聚合 | `Size` 是虚拟大小，含未提交的稀疏映射（见过 100 G 的 `[anon]`） |
 | cgroup 内存 | `/sys/fs/cgroup/**/memory.current` + `memory.stat` | `current ≈ anon + file + kernel` | **层级累计**，父子不可相加；`slab ⊂ kernel`、`shmem ⊂ file`；仅 cgroup v2 |
+| 应用分组 | `/proc/PID/cgroup` 的 `app-*.scope`；回退 `/proc/PID/exe`；再回退 `comm` | 去掉尾部 `-<pid>`、还原 `\x2d`、同一应用多 scope 合并 | `others (N)` 不可下钻；exe 回退会把两个 Chromium 合并（cgroup 口径不会） |
 | 进程归属 | `/proc/PID/cgroup` | `0::<path>` 单行解析 | 与 cgroup 列表同频（5 s）刷新；下钻按**子树**匹配（前缀 + 边界） |
 | 内存压力 | `/proc/pressure/memory`、`/sys/fs/cgroup/**/memory.pressure` | `some avg10`（10 s 内有任务因内存停顿的时间占比） | 系统级每 tick 读；5% / 20% 是经验阈值；`full` 只在全部非空闲任务都停顿时增长 |
 | PSS 构成 | `/proc/PID/smaps_rollup` | `Pss_Anon` / `Pss_File` / `Pss_Shmem`（三者之和 = `Pss`） | **逐 VMA 的 `smaps` 不输出这三个字段**，早期实现按 VMA 求和恒为 0——构成必须取 rollup |
@@ -108,8 +112,10 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | `g`/`G`、`Home`/`End` | 顶部 / 底部 |
 | `s` | 循环排序键（重置选择） |
 | `r` | 反向排序 |
-| `Tab` | 进程视图 ⇄ cgroup 视图（切换时退出详情与下钻） |
+| `Tab` | 进程视图 → cgroup 视图 → apps 视图（循环；切换时退出详情与下钻） |
 | `Enter`（cgroup） | 列出该 cgroup 子树内的进程；`Esc` 返回列表 |
+| `Enter`（apps） | 下钻到该应用的进程（进程表加 `app: <name>` 过滤），`Esc` 清除 |
+| `s`（apps） | 面积指标 PSS → USS → RSS |
 | `f` | 过滤输入；`Enter` 应用，`Esc` 取消（进程视图过滤名/PID，cgroup 视图过滤路径，详情页过滤映射名） |
 | `Esc`（详情） | 有映射过滤时先清除过滤，再按一次退出详情 |
 | `Enter` | 进入详情；在详情内展开/收起映射（`z`/`Z` 全部收起/展开） |
@@ -142,14 +148,15 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 
 ## 10. 里程碑
 
-- **M1（当前）**：两层采样 + 进程表 + VMA 聚合详情 + 趋势 + 过滤/排序 + 56 个测试 + 实机验证。
+- **M1（当前）**：两层采样 + 进程表 + VMA 聚合详情 + 趋势 + 过滤/排序 + 68 个测试 + 实机验证。
 - **M1.1（已完成，见 commit）**：PSS 覆盖率策略——预算按"未知优先、其后最旧优先"分配；EACCES 负缓存 30 s；分母改为可读进程数；陈旧值加 `~` 后缀。
 - **M2（进行中）**：
   - 已完成：PSS 构成（anon/file/shmem/swap-pss/THP/KSM）；映射过滤；`--json` 快照（稳定排序、schema 版本、`_kb` 单位）。
   - 已完成（第二轮）：VMA 组展开到单行；`--diff` 文本视图（含 `self_pid` 排除）。
   - 已完成（第六轮）：`--json --fields` 投影；OOM 时间序列（扫描序号采样）。
   - 备忘：`wora-observability-linux-mm` 只在需要 VMA 级元数据（KSM 明细、pagemap、UFFD）时才引入；`procfs` 已经覆盖当前全部字段。
-- **M3（进行中）**：
+- **M4（apps 视图）**：已完成——treemap、三级分组、others 折叠、PSS/USS/RSS 切换、下钻到进程、窄终端列表回退。
+- **M3（已完成）**：
   - 已完成：cgroup v2 内存视图（`Tab`）、`--json` 的 `cgroups` 数组、`--diff` 文本对比。
   - 已完成（第三轮）：cgroup → 进程下钻（子树匹配，`/proc/PID/cgroup` 每 5 s 刷新）。
   - 已完成（第四轮）：OOM 增量标记（`▲` + 标题汇总）；`--diff --min-delta/--top`。
