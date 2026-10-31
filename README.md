@@ -6,7 +6,7 @@ Linux 内存分析 TUI：按 RSS / **PSS** / **USS** 看进程，按映射聚合
 
 ```
  mtop  442 procs  mem 8.13G/15.36G  avail 7.23G  cached 6.15G  swap 3.28G/16.00G
- sweep 35ms pss 155ms coverage 205/205 = 5.85G  237 n/a (sudo for full) age 340ms
+ sweep 12ms pss 157ms coverage 205/205 = 5.92G  237 n/a (sudo) psi 0.0/0.0% age 867ms
 ┌ procs  sort RSS ↓  filter - ─────────────────────────────────────────────────────┐
 │     PID COMM                   RSS     PSS     USS PSS/RSS     Δ/s  SHARE  PSS MIX│
 │▸ 579585 chrome                524M    346M    320M     66%      0  ██████ ██████████
@@ -85,6 +85,7 @@ mtop diff  over 4s  (437 -> 438 procs)   15 grew, 3 shrank, 1 new, 0 gone
 - 校验恒等式：`current ≈ anon + file + kernel`（`slab` 属于 `kernel`，`shmem` 属于 `file`）。
 - `MAX` 显示 `max` 表示无限制；条按 `current/limit` 画，无限制时按最大 cgroup 归一。
 - `OOM` 列是累计 `oom_kill`；采样间隔内新增时显示 `2▲` 并在标题给出 `oom +N since last sample`。第一次扫描记为 0 增量，不会误报。
+- `PSI10` 是 `memory.pressure` 的 `some avg10`：过去 10 秒里有任务因内存卡住的时长占比。右上角 sparkline 画选中 cgroup 的 PSI 走势（固定 0–100% 刻度，避免 2% 就看成像满格）。**它比 OOM 更早预警**——OOM 是已经出事，PSI 是正在变慢。表头那行给的是系统级 `/proc/pressure/memory`（some/full）。阈值 5% / 20% 只是经验值，不是内核定义。
 - 仅支持 cgroup v2（需要 `memory.current`）；v1 或未启用 memory controller 时视图会说明原因。
 - `Enter` 下钻：列出该 cgroup **子树**内的进程（PID/COMM/RSS/PSS/PSS÷RSS），按 RSS 排序；`Esc` 返回。pid→cgroup 映射来自 `/proc/PID/cgroup`，与 cgroup 列表一起每 5 s 刷新。
 

@@ -92,6 +92,9 @@ pub struct App {
     pub drill_state: TableState,
     pub detail_state: TableState,
     pub history: HashMap<u32, VecDeque<u64>>,
+    /// PSI `some avg10` over time per cgroup, stored as percent*10 for the
+    /// sparkline (u64) with a fixed 0-1000 scale.
+    pub cgroup_history: HashMap<String, VecDeque<u64>>,
     last_sent: Option<(Option<u32>, bool)>,
     started: bool,
     pending_focus: Option<u32>,
@@ -123,6 +126,7 @@ impl App {
             drill_state: TableState::default(),
             detail_state: TableState::default(),
             history: HashMap::new(),
+            cgroup_history: HashMap::new(),
             last_sent: None,
             started: false,
             pending_focus: None,
@@ -274,6 +278,19 @@ impl App {
             }
         }
         self.history.retain(|pid, _| seen.contains(pid));
+
+        let mut cg_seen: std::collections::HashSet<&str> =
+            std::collections::HashSet::with_capacity(snap.cgroups.len());
+        for cg in &snap.cgroups {
+            cg_seen.insert(cg.path.as_str());
+            let h = self.cgroup_history.entry(cg.path.clone()).or_default();
+            h.push_back((cg.psi_some10.max(0.0) * 10.0).round() as u64);
+            while h.len() > HISTORY {
+                h.pop_front();
+            }
+        }
+        self.cgroup_history
+            .retain(|path, _| cg_seen.contains(path.as_str()));
         self.snap = Some(snap);
         // A different process means a different mapping tree: reset expansion.
         let pid = self.snap.as_ref().and_then(|s| s.detail.as_ref()).map(|d| d.pid);

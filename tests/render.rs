@@ -104,6 +104,7 @@ fn snapshot() -> Snapshot {
         }),
         sweep_ms: 18.0,
         pss_ms: 42.0,
+        pressure: mtop::procfs::Pressure { some10: 1.5, full10: 0.25 },
         pid_cgroup: Arc::new(HashMap::from([
             (100, "/user.slice/user-1000.slice/session-2.scope".to_string()),
             (200, "/system.slice".to_string()),
@@ -122,6 +123,8 @@ fn snapshot() -> Snapshot {
                 limit_kb: Some(4_194_304),
                 oom_kills: 0,
                 oom_recent: 0,
+                psi_some10: 0.0,
+                psi_full10: 0.0,
             },
             CgroupMem {
                 path: "/system.slice".into(),
@@ -134,6 +137,8 @@ fn snapshot() -> Snapshot {
                 limit_kb: None,
                 oom_kills: 2,
                 oom_recent: 1,
+                psi_some10: 12.5,
+                psi_full10: 3.0,
             },
         ],
         covered_pss_kb: 480_000,
@@ -372,12 +377,15 @@ fn tab_switches_to_the_cgroup_view() {
 
     let procs = render(&mut app);
     assert!(procs.contains("PSS MIX"), "process view expected first");
+    assert!(procs.contains("psi 1.5/0.2%"), "system psi missing from the header:\n{procs}");
 
     app.on_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     let text = render(&mut app);
     assert!(text.contains("CGROUP"), "cgroup header missing:\n{text}");
     assert!(text.contains("session-2.scope"), "cgroup path missing:\n{text}");
     assert!(text.contains("CURRENT"), "cgroup columns missing:\n{text}");
+    assert!(text.contains("PSI10"), "psi column missing:\n{text}");
+    assert!(text.contains("12.5%"), "cgroup psi not rendered:\n{text}");
     assert!(!text.contains("PSS MIX"), "process columns leaked into cgroup view");
     // Biggest first, and an OOM count is shown for the unlucky slice.
     assert!(
@@ -450,4 +458,28 @@ fn drill_down_uses_subtree_membership() {
 
     app.drill = Some("/nope".into());
     assert!(app.cgroup_members().is_empty());
+}
+
+#[test]
+fn cgroup_psi_history_is_recorded_and_plotted() {
+    let mut first = snapshot();
+    first.cgroups[0].psi_some10 = 3.0;
+    let mut second = snapshot();
+    second.cgroups[0].psi_some10 = 7.5;
+
+    let mut app = App::new(None);
+    app.on_snapshot(first);
+    app.on_snapshot(second);
+
+    let history = app
+        .cgroup_history
+        .get("/user.slice/user-1000.slice/session-2.scope")
+        .expect("history for the cgroup");
+    assert_eq!(history.len(), 2, "one sample per snapshot");
+    assert_eq!(history[0], 30, "percent*10 for a 0-1000 scale");
+    assert_eq!(history[1], 75);
+
+    app.view = mtop::app::View::Cgroups;
+    let text = render(&mut app);
+    assert!(text.contains("psi 7.5%"), "psi trend label missing:\n{text}");
 }

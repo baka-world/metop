@@ -58,6 +58,8 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | F19 | cgroup 视图 `Enter` 下钻出子树内进程（PID/COMM/RSS/PSS/占比），`Esc` 返回 | `cgroup_drill_lists_members_of_the_subtree`、`drill_down_uses_subtree_membership` |
 | F20 | OOM 事件增量：列显示累计值，采样间隔内新增时标 `▲` 且标题汇总；首帧不算增量 | `tab_switches_to_the_cgroup_view`（`2▲` + 标题断言） |
 | F21 | `--diff --min-delta SIZE --top N`：过滤小变化、限制行数；非法值退出码 2 | `tests/diff.rs`（阈值/条数/坏参数） |
+| F22 | PSI：表头显示系统 `some/full avg10`，cgroup 视图有 `PSI10` 列并按 5%/20% 上色，右上角画选中项走势（固定 0–100% 刻度） | `pressure_parses_some_and_full`、`cgroup_psi_history_is_recorded_and_plotted`、渲染断言 `psi 1.5/0.2%` 与 `12.5%` |
+| F23 | `--json` 输出 `pressure{some10,full10}` 与每个 cgroup 的 `psi_some10/psi_full10` | `tests/json.rs` |
 
 ## 5. 数据来源与精度
 
@@ -71,6 +73,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | VMA 分组 | `/proc/PID/smaps` | 按 `MMapPath` 聚合 | `Size` 是虚拟大小，含未提交的稀疏映射（见过 100 G 的 `[anon]`） |
 | cgroup 内存 | `/sys/fs/cgroup/**/memory.current` + `memory.stat` | `current ≈ anon + file + kernel` | **层级累计**，父子不可相加；`slab ⊂ kernel`、`shmem ⊂ file`；仅 cgroup v2 |
 | 进程归属 | `/proc/PID/cgroup` | `0::<path>` 单行解析 | 与 cgroup 列表同频（5 s）刷新；下钻按**子树**匹配（前缀 + 边界） |
+| 内存压力 | `/proc/pressure/memory`、`/sys/fs/cgroup/**/memory.pressure` | `some avg10`（10 s 内有任务因内存停顿的时间占比） | 系统级每 tick 读；5% / 20% 是经验阈值；`full` 只在全部非空闲任务都停顿时增长 |
 | PSS 构成 | `/proc/PID/smaps_rollup` | `Pss_Anon` / `Pss_File` / `Pss_Shmem`（三者之和 = `Pss`） | **逐 VMA 的 `smaps` 不输出这三个字段**，早期实现按 VMA 求和恒为 0——构成必须取 rollup |
 | swap-pss | `smaps_rollup` | `SwapPss`（按共享度加权） | 与 `Swap`（实际换出量）不是同一个量，UI 分开显示 |
 | THP / KSM | `smaps_rollup` | `AnonHugePages` / `KSM` | 大页会被算进 anon，KSM 合并的页仍计入 PSS |
@@ -120,7 +123,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 
 ## 9. 里程碑
 
-- **M1（当前）**：两层采样 + 进程表 + VMA 聚合详情 + 趋势 + 过滤/排序 + 44 个测试 + 实机验证。
+- **M1（当前）**：两层采样 + 进程表 + VMA 聚合详情 + 趋势 + 过滤/排序 + 45 个测试 + 实机验证。
 - **M1.1（已完成，见 commit）**：PSS 覆盖率策略——预算按"未知优先、其后最旧优先"分配；EACCES 负缓存 30 s；分母改为可读进程数；陈旧值加 `~` 后缀。
 - **M2（进行中）**：
   - 已完成：PSS 构成（anon/file/shmem/swap-pss/THP/KSM）；映射过滤；`--json` 快照（稳定排序、schema 版本、`_kb` 单位）。
@@ -131,4 +134,5 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
   - 已完成：cgroup v2 内存视图（`Tab`）、`--json` 的 `cgroups` 数组、`--diff` 文本对比。
   - 已完成（第三轮）：cgroup → 进程下钻（子树匹配，`/proc/PID/cgroup` 每 5 s 刷新）。
   - 已完成（第四轮）：OOM 增量标记（`▲` + 标题汇总）；`--diff --min-delta/--top`。
-  - 待做：OOM 历史曲线（需要按时间采样 `memory.events`）；`--json` 字段筛选。
+  - 已完成（第五轮）：PSI（系统级表头 + cgroup `PSI10` 列 + JSON）。
+  - 待做：OOM/PSI 时间序列（需要环形缓冲）；`--json` 字段筛选。
