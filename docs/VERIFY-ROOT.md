@@ -85,16 +85,27 @@ FAILED
 
 ## 5. 清理
 
-```sh
-sudo rm -f /tmp/mtop-root.json
+脚本用 `mktemp` 并在退出时删除临时文件，无需手动清理。
+
+## 6. 实测记录（2026-10-31）
+
+root：
+
+```
+$ sudo scripts/verify-root.sh
+procs=447 covered=264 denied=0 no_mm=183
+pss total=6.27 GiB  pss<=rss violations=0
+OK
 ```
 
-本机 root 实测（2026-10-31）：
+- `264 + 183 = 447`：每个进程都被归入"已覆盖"或"无 mm"，没有第三种状态。
+- `denied=0`：非 root 下那 ~59 个 EACCES 全部转为可读。
+- TUI 同次验证：表头 `coverage 265/265`，无 `n/a (needs root)` 提示；`dnf5daemon-serv` 从 `n/a` 变为 PSS 330M；用户自己的进程（chrome 339M / omp 351M）PSS 不变——root 只打开了权限，没有改变统计口径。
+
+非 root（同一脚本，负向用例）：
 
 ```
-procs=445 covered=265 denied=0 no_mm=180
-coverage 265/265   （表头无 n/a (needs root) 提示）
-4551 dnf5daemon-serv  347M  330M  328M  95%   ← 非 root 时为 n/a
+procs=442 covered=203 denied=59 no_mm=180
+FAIL: 59 processes still return EACCES; see docs/VERIFY-ROOT.md section 4
+FAILED
 ```
-
-用户自报进程（chrome 339M / omp 351M）的 PSS 与非 root 时一致，说明 root 只是打开了权限，没有改变统计口径。
