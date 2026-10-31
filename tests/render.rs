@@ -2,6 +2,7 @@
 //! plain text, so layout changes can be asserted instead of eyeballed.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::Instant;
 
 use mtop::app::App;
@@ -103,6 +104,12 @@ fn snapshot() -> Snapshot {
         }),
         sweep_ms: 18.0,
         pss_ms: 42.0,
+        pid_cgroup: Arc::new(HashMap::from([
+            (100, "/user.slice/user-1000.slice/session-2.scope".to_string()),
+            (200, "/system.slice".to_string()),
+            (300, "/user.slice/user-1000.slice/session-2.scope".to_string()),
+            (400, "/system.slice".to_string()),
+        ])),
         cgroups: vec![
             CgroupMem {
                 path: "/user.slice/user-1000.slice/session-2.scope".into(),
@@ -394,4 +401,47 @@ fn cgroup_view_sorts_and_filters() {
     app.filter = "system".into();
     assert_eq!(app.visible_cgroups().len(), 1);
     assert!(render(&mut app).contains("/system.slice"));
+}
+
+#[test]
+fn cgroup_drill_lists_members_of_the_subtree() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = App::new(None);
+    app.on_snapshot(snapshot());
+    app.on_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(
+        app.drill.as_deref(),
+        Some("/user.slice/user-1000.slice/session-2.scope")
+    );
+    assert_eq!(app.cgroup_members().len(), 2, "only this cgroup's procs");
+
+    let text = render(&mut app);
+    assert!(text.contains("procs in cgroup subtree"), "drill view missing:\n{text}");
+    assert!(text.contains("chrome"), "member missing:\n{text}");
+    // The ratio must survive its column width and the share bar must not be
+    // scaled against total RAM (which rounds a 500 MB row to zero cells).
+    assert!(text.contains("60%"), "PSS/RSS clipped by the column:\n{text}");
+    assert!(text.contains('█'), "share bar rendered empty:\n{text}");
+    assert!(!text.contains("node"), "member of another cgroup leaked:\n{text}");
+
+    app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(app.drill.is_none(), "Esc must return to the cgroup list");
+    assert!(render(&mut app).contains("CGROUP"));
+}
+
+#[test]
+fn drill_down_uses_subtree_membership() {
+    let mut app = App::new(None);
+    app.on_snapshot(snapshot());
+
+    app.drill = Some("/user.slice".into());
+    assert_eq!(app.cgroup_members().len(), 2, "parent must include descendants");
+
+    app.drill = Some("/".into());
+    assert_eq!(app.cgroup_members().len(), 4, "root subtree is everything");
+
+    app.drill = Some("/nope".into());
+    assert!(app.cgroup_members().is_empty());
 }

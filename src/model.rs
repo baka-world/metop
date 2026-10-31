@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::cgroup::CgroupMem;
@@ -80,6 +81,9 @@ pub struct Snapshot {
     pub mem: MemInfo,
     /// cgroup v2 memory accounting (empty on v1 or when unreadable).
     pub cgroups: Vec<CgroupMem>,
+    /// pid -> cgroup path, refreshed on the slow cadence; Arc so the per-tick
+    /// snapshot clone stays cheap.
+    pub pid_cgroup: Arc<HashMap<u32, String>>,
     pub detail: Option<Detail>,
     /// Why the detail view is empty (usually EACCES on a process we don't own).
     pub detail_error: Option<String>,

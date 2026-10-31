@@ -70,6 +70,9 @@ pub struct App {
     pub sort: SortKey,
     pub cgroup_sort: CgroupSort,
     pub cgroup_sel: usize,
+    /// cgroup path whose processes are being listed (drill-down).
+    pub drill: Option<String>,
+    pub drill_sel: usize,
     pub desc: bool,
     pub filter: String,
     /// Mapping-name filter for the VMA detail view (independent of `filter`).
@@ -86,6 +89,7 @@ pub struct App {
     pub snap: Option<Snapshot>,
     pub table_state: TableState,
     pub cgroup_state: TableState,
+    pub drill_state: TableState,
     pub detail_state: TableState,
     pub history: HashMap<u32, VecDeque<u64>>,
     last_sent: Option<(Option<u32>, bool)>,
@@ -101,6 +105,8 @@ impl App {
             sort: SortKey::Rss,
             cgroup_sort: CgroupSort::Current,
             cgroup_sel: 0,
+            drill: None,
+            drill_sel: 0,
             desc: true,
             filter: String::new(),
             detail_filter: String::new(),
@@ -114,6 +120,7 @@ impl App {
             snap: None,
             table_state: TableState::default(),
             cgroup_state: TableState::default(),
+            drill_state: TableState::default(),
             detail_state: TableState::default(),
             history: HashMap::new(),
             last_sent: None,
@@ -195,6 +202,30 @@ impl App {
         if self.desc {
             rows.reverse();
         }
+        rows
+    }
+
+    /// Processes whose cgroup is `drill` or a descendant of it. The cgroup
+    /// numbers are hierarchical, so the subtree is what you want to see.
+    pub fn cgroup_members(&self) -> Vec<&ProcRow> {
+        let (Some(path), Some(snap)) = (&self.drill, &self.snap) else {
+            return Vec::new();
+        };
+        let prefix = if path == "/" {
+            "/".to_string()
+        } else {
+            format!("{path}/")
+        };
+        let mut rows: Vec<&ProcRow> = snap
+            .rows
+            .iter()
+            .filter(|r| {
+                snap.pid_cgroup
+                    .get(&r.pid)
+                    .is_some_and(|c| c == path || c.starts_with(&prefix))
+            })
+            .collect();
+        rows.sort_by_key(|r| std::cmp::Reverse(r.rss_kb));
         rows
     }
 
@@ -299,9 +330,12 @@ impl App {
         self.sel = self.sel.min(n_proc.saturating_sub(1));
         let n_cg = self.visible_cgroups().len();
         self.cgroup_sel = self.cgroup_sel.min(n_cg.saturating_sub(1));
+        let n_members = self.cgroup_members().len();
+        self.drill_sel = self.drill_sel.min(n_members.saturating_sub(1));
         self.detail_sel = self.detail_sel.min(self.detail_len().saturating_sub(1));
         self.table_state.select(Some(self.sel));
         self.cgroup_state.select(Some(self.cgroup_sel));
+        self.drill_state.select(Some(self.drill_sel));
         self.detail_state.select(Some(self.detail_sel));
     }
 
@@ -322,6 +356,7 @@ impl App {
                     View::Cgroups => View::Procs,
                 };
                 self.detail = false;
+                self.drill = None;
                 self.editing = false;
             }
             KeyCode::Char('j') | KeyCode::Down => self.move_sel(1),
@@ -332,10 +367,12 @@ impl App {
                 self.sel = 0;
                 self.detail_sel = 0;
                 self.cgroup_sel = 0;
+                self.drill_sel = 0;
             }
             KeyCode::Char('G') | KeyCode::End => {
                 self.sel = usize::MAX / 2;
                 self.cgroup_sel = usize::MAX / 2;
+                self.drill_sel = usize::MAX / 2;
             }
             KeyCode::Char('s') => {
                 if self.view == View::Cgroups {
@@ -357,7 +394,18 @@ impl App {
                 };
             }
             KeyCode::Enter | KeyCode::Char(' ') => {
-                if self.detail {
+                if self.view == View::Cgroups {
+                    // Enter opens the process list of the selected subtree.
+                    if self.drill.is_none()
+                        && let Some(path) = self
+                            .visible_cgroups()
+                            .get(self.cgroup_sel)
+                            .map(|c| c.path.clone())
+                    {
+                        self.drill = Some(path);
+                        self.drill_sel = 0;
+                    }
+                } else if self.detail {
                     // Enter expands a mapping into its individual VMAs; Esc is
                     // the way back (standard tree navigation).
                     self.toggle_expand();
@@ -373,7 +421,10 @@ impl App {
                 }
             }
             KeyCode::Esc => {
-                if self.detail && !self.detail_filter.is_empty() {
+                if self.view == View::Cgroups && self.drill.is_some() {
+                    self.drill = None;
+                    self.drill_sel = 0;
+                } else if self.detail && !self.detail_filter.is_empty() {
                     self.detail_filter.clear();
                     self.detail_sel = 0;
                 } else if self.detail {
@@ -421,8 +472,13 @@ impl App {
 
     fn move_sel(&mut self, delta: isize) {
         if self.view == View::Cgroups {
-            let n = self.visible_cgroups().len();
-            self.cgroup_sel = step(self.cgroup_sel, delta, n);
+            if self.drill.is_some() {
+                let n = self.cgroup_members().len();
+                self.drill_sel = step(self.drill_sel, delta, n);
+            } else {
+                let n = self.visible_cgroups().len();
+                self.cgroup_sel = step(self.cgroup_sel, delta, n);
+            }
             return;
         }
         if self.detail {

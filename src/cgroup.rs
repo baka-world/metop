@@ -118,6 +118,37 @@ pub fn scan(root: &Path) -> Vec<CgroupMem> {
     out
 }
 
+/// cgroup v2 entries look like `0::/user.slice/user-1000.slice/session-2.scope`.
+pub fn parse_v2_line(text: &str) -> Option<String> {
+    text.lines()
+        .find_map(|l| l.strip_prefix("0::"))
+        .map(|p| p.trim().to_string())
+}
+
+/// pid -> cgroup path. One small file per process (~465 reads, measured in the
+/// low milliseconds), so it runs on the 5 s cadence, not the 1 Hz sweep.
+pub fn pid_map() -> std::collections::HashMap<u32, String> {
+    let mut out = std::collections::HashMap::new();
+    let Ok(entries) = fs::read_dir("/proc") else {
+        return out;
+    };
+    for e in entries.flatten() {
+        let Some(pid) = e
+            .file_name()
+            .to_str()
+            .and_then(|s| s.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        if let Ok(text) = fs::read_to_string(format!("/proc/{pid}/cgroup"))
+            && let Some(path) = parse_v2_line(&text)
+        {
+            out.insert(pid, path);
+        }
+    }
+    out
+}
+
 /// True when this is a cgroup v2 hierarchy.
 pub fn is_v2(root: &Path) -> bool {
     root.join("cgroup.controllers").exists()
@@ -137,6 +168,17 @@ shmem 2097152
 slab 4194304
 pgfault 12345
 ";
+
+    #[test]
+    fn cgroup_membership_line_is_parsed() {
+        assert_eq!(
+            parse_v2_line("0::/user.slice/user-1000.slice/session-2.scope\n").as_deref(),
+            Some("/user.slice/user-1000.slice/session-2.scope")
+        );
+        // v1 lines have a controller list and no empty hierarchy id.
+        assert_eq!(parse_v2_line("5:memory:/user.slice\n"), None);
+        assert_eq!(parse_v2_line(""), None);
+    }
 
     #[test]
     fn parses_the_fields_we_display() {
