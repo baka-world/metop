@@ -267,6 +267,7 @@ fn tick(st: &mut State, pss_budget: Duration) -> Snapshot {
         rows,
         pss: st.pss.clone(),
         mem: st.mem.clone(),
+        pressure: procfs::read_pressure(),
         cgroups: st.cgroups.clone(),
         pid_cgroup: st.pid_cgroup.clone(),
         detail,

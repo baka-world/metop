@@ -85,6 +85,10 @@ pub fn snapshot_json(snap: &Snapshot) -> String {
             "swap_total_kb": snap.mem.swap_total_kb,
             "swap_free_kb": snap.mem.swap_free_kb,
         },
+        "pressure": {
+            "some10": snap.pressure.some10,
+            "full10": snap.pressure.full10,
+        },
         "sampling": {
             "sweep_ms": snap.sweep_ms,
             "pss_ms": snap.pss_ms,
@@ -104,6 +108,8 @@ pub fn snapshot_json(snap: &Snapshot) -> String {
             "limit_kb": c.limit_kb,
             "oom_kills": c.oom_kills,
             "oom_recent": c.oom_recent,
+            "psi_some10": c.psi_some10,
+            "psi_full10": c.psi_full10,
         })).collect::<Vec<_>>(),
         "detail_error": snap.detail_error,
         "detail": detail,

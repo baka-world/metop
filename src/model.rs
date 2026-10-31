@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::cgroup::CgroupMem;
-use crate::procfs::{MemInfo, SmapsReport};
+use crate::procfs::{MemInfo, Pressure, SmapsReport};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SortKey {
@@ -79,6 +79,8 @@ pub struct Snapshot {
     /// Only pids the sampler has spent page-table-walk budget on.
     pub pss: HashMap<u32, PssInfo>,
     pub mem: MemInfo,
+    /// System-wide PSI for memory (/proc/pressure/memory), read every tick.
+    pub pressure: Pressure,
     /// cgroup v2 memory accounting (empty on v1 or when unreadable).
     pub cgroups: Vec<CgroupMem>,
     /// pid -> cgroup path, refreshed on the slow cadence; Arc so the per-tick

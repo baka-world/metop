@@ -37,6 +37,11 @@ fn snapshot_is_sorted_and_self_consistent() {
         "procs are not sorted by pid"
     );
 
+    let psi = &v["pressure"];
+    assert!(psi["some10"].is_number(), "system pressure missing");
+    let some = psi["some10"].as_f64().unwrap();
+    assert!((0.0..=100.0).contains(&some), "implausible psi: {some}");
+
     let total = v["mem"]["total_kb"].as_u64().unwrap();
     assert!(
         (1_000_000..10_000_000_000).contains(&total),

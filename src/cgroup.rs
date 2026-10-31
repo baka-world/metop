@@ -25,6 +25,10 @@ pub struct CgroupMem {
     pub oom_kills: u64,
     /// Kills observed since the previous scan (filled in by the sampler).
     pub oom_recent: u64,
+    /// memory.pressure: percent of time some task stalled.
+    pub psi_some10: f32,
+    /// memory.pressure: percent of time every non-idle task stalled.
+    pub psi_full10: f32,
 }
 
 /// Pure parser so the format can be tested without a cgroup filesystem.
@@ -78,6 +82,11 @@ fn read_one(dir: &Path) -> Option<CgroupMem> {
     cg.oom_kills = fs::read_to_string(dir.join("memory.events"))
         .map(|t| parse_oom_kills(&t))
         .unwrap_or(0);
+    if let Ok(text) = fs::read_to_string(dir.join("memory.pressure")) {
+        let p = crate::procfs::parse_pressure(&text);
+        cg.psi_some10 = p.some10;
+        cg.psi_full10 = p.full10;
+    }
     Some(cg)
 }
 

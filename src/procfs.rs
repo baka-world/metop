@@ -266,6 +266,43 @@ pub fn read_meminfo() -> MemInfo {
     }
 }
 
+/// Pressure Stall Information, as percentages of wall-clock time.
+#[derive(Default, Clone, Copy, Debug)]
+pub struct Pressure {
+    /// "some": at least one task stalled on memory.
+    pub some10: f32,
+    /// "full": every non-idle task stalled.
+    pub full10: f32,
+}
+
+/// Format: `some avg10=0.00 avg60=0.00 avg300=0.00 total=83528484`.
+pub fn parse_pressure(text: &str) -> Pressure {
+    let mut p = Pressure::default();
+    for line in text.lines() {
+        let Some((kind, rest)) = line.split_once(' ') else {
+            continue;
+        };
+        let avg10 = rest
+            .split_whitespace()
+            .find_map(|f| f.strip_prefix("avg10="))
+            .and_then(|v| v.parse::<f32>().ok())
+            .unwrap_or(0.0);
+        match kind {
+            "some" => p.some10 = avg10,
+            "full" => p.full10 = avg10,
+            _ => {}
+        }
+    }
+    p
+}
+
+/// System-wide memory pressure. One small file, so it can be read every tick.
+pub fn read_pressure() -> Pressure {
+    std::fs::read_to_string("/proc/pressure/memory")
+        .map(|t| parse_pressure(&t))
+        .unwrap_or_default()
+}
+
 pub fn fmt_kb(kb: u64) -> String {
     let mb = kb as f64 / 1024.0;
     if mb >= 1024.0 {

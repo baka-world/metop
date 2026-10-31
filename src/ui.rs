@@ -74,7 +74,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 }
 
 fn header(f: &mut Frame, area: Rect, app: &App) {
-    let cols = Layout::horizontal([Constraint::Min(48), Constraint::Length(36)]).split(area);
+    let cols = Layout::horizontal([Constraint::Min(48), Constraint::Length(32)]).split(area);
     let Some(snap) = &app.snap else {
         f.render_widget(Paragraph::new("mtop"), cols[0]);
         return;
@@ -135,6 +135,18 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
             Style::new().fg(Color::Yellow),
         ));
     }
+    let psi = snap.pressure;
+    let psi_color = if psi.some10 >= 20.0 {
+        Color::Red
+    } else if psi.some10 >= 5.0 {
+        Color::Yellow
+    } else {
+        Color::DarkGray
+    };
+    line2.push(Span::styled(
+        format!("psi {:.1}/{:.1}% ", psi.some10, psi.full10),
+        Style::new().fg(psi_color),
+    ));
     line2.push(Span::styled(
         format!("age {}ms", app.sample_age_ms()),
         Style::new().fg(Color::DarkGray),
@@ -148,10 +160,21 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
     // RSS trend of the focused process.
     let (label, data): (String, Vec<u64>) = match app.view {
         View::Cgroups => match app.visible_cgroups().get(app.cgroup_sel) {
-            Some(cg) => (
-                format!(" {} {}", truncate_left(&cg.path, 26), fmt_kb(cg.current_kb)),
-                Vec::new(),
-            ),
+            Some(cg) => {
+                let hist = app
+                    .cgroup_history
+                    .get(&cg.path)
+                    .map(|h| h.iter().copied().collect::<Vec<u64>>())
+                    .unwrap_or_default();
+                (
+                    format!(
+                        " {} psi {:.1}%",
+                        truncate_left(&cg.path, 16),
+                        cg.psi_some10
+                    ),
+                    hist,
+                )
+            }
             None => (" cgroups".into(), Vec::new()),
         },
         View::Procs => match app.selected_pid() {
@@ -172,7 +195,13 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
         None => (" rss trend".into(), Vec::new()),
         },
     };
-    let max = data.iter().copied().max().unwrap_or(1).max(1);
+    // The cgroup sparkline has a fixed 0-100% scale (values are stored as
+    // percent*10), otherwise one 2% sample would fill the whole graph.
+    let max = if app.view == View::Cgroups {
+        1000
+    } else {
+        data.iter().copied().max().unwrap_or(1).max(1)
+    };
     f.render_widget(
         Sparkline::default()
             .data(data.as_slice())
@@ -426,12 +455,14 @@ fn cgroup_drill(f: &mut Frame, area: Rect, app: &mut App) {
             Style::new().add_modifier(Modifier::BOLD | Modifier::REVERSED),
         ),
         Span::raw(format!(
-            " current {} · {} procs in subtree · limit {} ",
+            " current {} · {} procs in subtree · limit {} · psi {:.1}/{:.1}% ",
             cg.map(|c| fmt_kb(c.current_kb)).unwrap_or_else(|| "—".into()),
             members.len(),
             cg.and_then(|c| c.limit_kb)
                 .map(fmt_kb)
-                .unwrap_or_else(|| "max".into())
+                .unwrap_or_else(|| "max".into()),
+            cg.map(|c| c.psi_some10).unwrap_or(0.0),
+            cg.map(|c| c.psi_full10).unwrap_or(0.0)
         )),
     ]);
     f.render_widget(
@@ -557,7 +588,7 @@ fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
                 (format!("{:>4}", 0), Style::new().fg(Color::DarkGray))
             };
             Row::new(vec![
-                Cell::from(truncate_left(&c.path, 46)),
+                Cell::from(truncate_left(&c.path, 42)),
                 Cell::from(format!("{:>9}", fmt_kb(c.current_kb))),
                 Cell::from(format!("{:>9}", fmt_kb(c.anon_kb))),
                 Cell::from(format!("{:>9}", fmt_kb(c.file_kb))),
@@ -567,6 +598,16 @@ fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
                     Some(l) => Text::from(format!("{:>9}", fmt_kb(l))),
                     None => Text::from(Span::styled("      max", Style::new().fg(Color::DarkGray))),
                 }),
+                Cell::from(Text::from(Span::styled(
+                    format!("{:>6.1}%", c.psi_some10),
+                    if c.psi_some10 >= 20.0 {
+                        Style::new().fg(Color::Red)
+                    } else if c.psi_some10 >= 5.0 {
+                        Style::new().fg(Color::Yellow)
+                    } else {
+                        Style::new().fg(Color::DarkGray)
+                    },
+                ))),
                 Cell::from(Text::from(Span::styled(oom_text, oom_style))),
                 bar_cell(frac, color, 10),
             ])
@@ -574,13 +615,14 @@ fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
         .collect();
 
     let header = Row::new(vec![
-        Cell::from(format!("{:<46}", "CGROUP")),
+        Cell::from(format!("{:<42}", "CGROUP")),
         Cell::from(format!("{:>9}", "CURRENT")),
         Cell::from(format!("{:>9}", "ANON")),
         Cell::from(format!("{:>9}", "FILE")),
         Cell::from(format!("{:>9}", "KERNEL")),
         Cell::from(format!("{:>9}", "SLAB")),
         Cell::from(format!("{:>9}", "MAX")),
+        Cell::from(format!("{:>7}", "PSI10")),
         Cell::from(format!("{:>4}", "OOM")),
         Cell::from(" CUR/MAX"),
     ])
@@ -601,13 +643,14 @@ fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
     let table = Table::new(
         rows,
         [
-            Constraint::Length(46),
+            Constraint::Length(42),
             Constraint::Length(9),
             Constraint::Length(9),
             Constraint::Length(9),
             Constraint::Length(9),
             Constraint::Length(9),
             Constraint::Length(9),
+            Constraint::Length(7),
             Constraint::Length(4),
             Constraint::Length(10),
         ],
