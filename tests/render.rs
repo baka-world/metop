@@ -36,6 +36,8 @@ fn snapshot() -> Snapshot {
             ProcRow { pid: 300, comm: "sleepy-daemon-that-has-a-very-long-name".into(), rss_kb: 100_000, delta_kb: 0 },
             // pid 400 is unreadable (EACCES), not merely unsampled.
             ProcRow { pid: 400, comm: "root-owned-daemon".into(), rss_kb: 50_000, delta_kb: 0 },
+            // pid 500 is a kernel thread: no address space, no PSS even as root.
+            ProcRow { pid: 500, comm: "kthreadd".into(), rss_kb: 0, delta_kb: 0 },
         ],
         pss,
         mem: MemInfo {
@@ -145,6 +147,7 @@ fn snapshot() -> Snapshot {
         covered_pss_kb: 480_000,
         covered: 2,
         denied: HashSet::from([400]),
+        no_mm: HashSet::from([500]),
         at: Instant::now(),
     }
 }
@@ -182,8 +185,14 @@ fn process_table_renders_sorted_with_pss_gaps_marked() {
     assert!(text.contains('—'), "missing PSS not marked:\n{text}");
     // Header reports coverage over readable processes only, and names the
     // unreadable ones instead of letting them look like zero.
-    assert!(text.contains("coverage 2/3"), "coverage line missing:\n{text}");
+    // Denominator excludes kernel threads (2 of 4 eligible readable), so the
+    // number cannot be dragged down by something sudo cannot fix.
+    assert!(text.contains("coverage 2/4"), "coverage line missing:\n{text}");
     assert!(text.contains("1 n/a"), "denied count missing:\n{text}");
+    assert!(
+        text.contains("needs root"),
+        "denied hint must not promise sudo for kernel threads:\n{text}"
+    );
     assert!(text.contains("n/a"), "denied rows not marked:\n{text}");
 }
 
@@ -193,7 +202,11 @@ fn sort_by_pss_reorders_without_pss_entries_at_the_bottom() {
     app.on_snapshot(snapshot());
     app.sort = SortKey::Pss;
     let order: Vec<u32> = app.visible().iter().map(|r| r.pid).collect();
-    assert_eq!(order, vec![100, 200, 300, 400], "pss sort order wrong: {order:?}");
+    assert_eq!(
+        order,
+        vec![100, 200, 300, 400, 500],
+        "pss sort order wrong: {order:?}"
+    );
 }
 
 #[test]
@@ -238,13 +251,13 @@ fn keyboard_navigation_is_clamped() {
     for _ in 0..10 {
         app.on_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
     }
-    assert_eq!(app.sel, 3, "selection should clamp to the last row");
+    assert_eq!(app.sel, 4, "selection should clamp to the last row");
 
     app.on_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE));
     assert_eq!(app.sel, 0);
 
     app.on_key(KeyEvent::new(KeyCode::Char('G'), KeyModifiers::NONE));
-    assert_eq!(app.sel, 3);
+    assert_eq!(app.sel, 4);
 
     let before = app.sort;
     app.on_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
