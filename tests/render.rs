@@ -246,6 +246,23 @@ fn render(app: &mut App) -> String {
 }
 
 #[test]
+fn small_nonzero_delta_renders_in_kb_instead_of_zero_megabytes() {
+    let mut app = App::new(None);
+    app.on_snapshot(snapshot());
+    app.snap.as_mut().unwrap().rows[0].delta_kb = 4;
+
+    let text = render(&mut app);
+    assert!(
+        text.contains("+    4k"),
+        "delta missing from table:\n{text}"
+    );
+    assert!(
+        !text.contains("+  0.0M") && !text.contains("-  0.0M"),
+        "nonzero delta rendered as zero megabytes:\n{text}"
+    );
+}
+
+#[test]
 fn process_table_renders_sorted_with_pss_gaps_marked() {
     let mut app = App::new(None);
     app.on_snapshot(snapshot());

@@ -142,7 +142,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | 项 | 状态 |
 |---|---|
 | 功能需求 F1–F23 | 全部实现，逐项有测试或实机抓帧 |
-| 自动化测试 / clippy | 86 tests，0 warning |
+| 自动化测试 / clippy | 88 tests，0 warning |
 | 单文件分发 | `cargo build --release` → 1.4 MB，无运行时依赖 |
 | LICENSE | MIT（与 `Cargo.toml` 一致） |
 | `--version` / `--help` | 已提供，`tests/cli.rs` 覆盖 |
