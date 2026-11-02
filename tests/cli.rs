@@ -35,6 +35,10 @@ fn help_lists_the_interfaces_we_actually_have() {
         "--json",
         "--diff",
         "--min-delta",
+        "--min-delta-metric",
+        "--vmas",
+        "--no-detail",
+        "--pids",
         "--pid",
         "--theme",
         "gruvbox-dark, kanagawa-wave, light, ansi16",
@@ -81,6 +85,51 @@ fn unknown_colour_mode_is_a_usage_error() {
     // Valid modes parse even when no TUI is started.
     let ok = run(&["--color", "256", "--version"]);
     assert!(ok.status.success());
+}
+
+#[test]
+fn json_only_flags_are_rejected_outside_json() {
+    for args in [
+        vec!["--vmas"],
+        vec!["--detail"],
+        vec!["--no-detail"],
+        vec!["--fields", "help"],
+    ] {
+        let out = run(&args);
+        assert_eq!(out.status.code(), Some(2), "{args:?} accepted");
+        assert!(
+            String::from_utf8_lossy(&out.stderr).contains("requires --json")
+                || String::from_utf8_lossy(&out.stderr).contains("--json"),
+            "unclear error for {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    assert_eq!(run(&["--vmas", "--json"]).status.code(), Some(2));
+    assert_eq!(run(&["--detail", "--json"]).status.code(), Some(2));
+}
+
+#[test]
+fn pid_lists_reject_empty_duplicate_and_malformed_entries() {
+    for args in [
+        vec!["--json", "--pids", ""],
+        vec!["--json", "--pids", ","],
+        vec!["--json", "--pids", "1,,2"],
+        vec!["--json", "--pids", "1,abc"],
+        vec!["--json", "--pids", "1,1"],
+        vec!["--json", "--pid", "1", "--pid", "1"],
+        vec!["--json", "--pid", "1", "--pids", "1,2"],
+        vec!["--pids", "1,2"],
+    ] {
+        let out = run(&args);
+        assert_eq!(out.status.code(), Some(2), "{args:?} accepted");
+    }
+}
+
+#[test]
+fn diff_metric_requires_a_known_value() {
+    let out = run(&["--diff", "a", "b", "--min-delta-metric", "both"]);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("rss, pss, or max"));
 }
 
 #[test]

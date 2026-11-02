@@ -15,10 +15,39 @@ struct Entry {
     pss_kb: Option<u64>,
 }
 
+/// Metric used for `--min-delta` and row ranking.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Metric {
+    Rss,
+    Pss,
+    /// PSS-first default: either side of the memory accounting may move.
+    Max,
+}
+
+impl Metric {
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "rss" => Some(Metric::Rss),
+            "pss" => Some(Metric::Pss),
+            "max" => Some(Metric::Max),
+            _ => None,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Metric::Rss => "|ΔRSS|",
+            Metric::Pss => "|ΔPSS|",
+            Metric::Max => "max(|ΔRSS|,|ΔPSS|)",
+        }
+    }
+}
+
 /// `--diff` knobs.
 pub struct Opts {
-    /// Hide rows whose |ΔRSS| is smaller than this (kB).
+    /// Hide rows whose delta is smaller than this (kB), measured by `metric`.
     pub min_delta_kb: u64,
+    pub min_delta_metric: Metric,
     pub top: usize,
 }
 
@@ -26,6 +55,7 @@ impl Default for Opts {
     fn default() -> Self {
         Opts {
             min_delta_kb: 0,
+            min_delta_metric: Metric::Max,
             top: 30,
         }
     }
@@ -53,7 +83,7 @@ struct Doc {
 fn parse(text: &str, name: &str) -> Result<Doc, String> {
     let v: Value = serde_json::from_str(text).map_err(|e| format!("{name}: not JSON ({e})"))?;
     match v.get("schema").and_then(Value::as_str) {
-        Some("metop.snapshot.v1") | Some("mtop.snapshot.v1") => {}
+        Some("metop.snapshot.v1" | "mtop.snapshot.v1" | "metop.snapshot.v2") => {}
         Some(other) => return Err(format!("{name}: unsupported snapshot schema {other:?}")),
         None => return Err(format!("{name}: missing schema")),
     }
@@ -92,6 +122,19 @@ fn parse(text: &str, name: &str) -> Result<Doc, String> {
     })
 }
 
+/// Magnitude used for filtering and ordering. PSS-only changes must not be
+/// hidden just because RSS is flat; when PSS is unavailable, RSS is the
+/// fallback.
+fn rank_kb(metric: Metric, drss: i64, dpss: Option<i64>) -> u64 {
+    let rss = drss.unsigned_abs();
+    let pss = dpss.map(|d| d.unsigned_abs());
+    match metric {
+        Metric::Rss => rss,
+        Metric::Pss => pss.unwrap_or(rss),
+        Metric::Max => rss.max(pss.unwrap_or(0)),
+    }
+}
+
 fn signed_kb(delta: i64) -> String {
     let sign = if delta > 0 {
         "+"
@@ -110,6 +153,8 @@ struct Row {
     rss_now: u64,
     pss_now: Option<u64>,
     dpss: Option<i64>,
+    /// Absolute delta under the selected metric; drives filtering and ranking.
+    rank_kb: u64,
     note: &'static str,
 }
 
@@ -139,16 +184,18 @@ pub fn render(a_text: &str, b_text: &str, opts: &Opts) -> Result<String, String>
                 } else if drss < 0 {
                     shrank += 1;
                 }
+                let dpss = match (x.pss_kb, y.pss_kb) {
+                    (Some(p), Some(q)) => Some(q as i64 - p as i64),
+                    _ => None,
+                };
                 rows.push(Row {
                     pid,
                     comm: y.comm.clone(),
                     drss,
                     rss_now: y.rss_kb,
                     pss_now: y.pss_kb,
-                    dpss: match (x.pss_kb, y.pss_kb) {
-                        (Some(p), Some(q)) => Some(q as i64 - p as i64),
-                        _ => None,
-                    },
+                    dpss,
+                    rank_kb: rank_kb(opts.min_delta_metric, drss, dpss),
                     note: "",
                 });
             }
@@ -161,6 +208,7 @@ pub fn render(a_text: &str, b_text: &str, opts: &Opts) -> Result<String, String>
                     rss_now: y.rss_kb,
                     pss_now: y.pss_kb,
                     dpss: None,
+                    rank_kb: y.rss_kb,
                     note: "new",
                 });
             }
@@ -173,6 +221,7 @@ pub fn render(a_text: &str, b_text: &str, opts: &Opts) -> Result<String, String>
                     rss_now: 0,
                     pss_now: None,
                     dpss: None,
+                    rank_kb: x.rss_kb,
                     note: "gone",
                 });
             }
@@ -180,8 +229,8 @@ pub fn render(a_text: &str, b_text: &str, opts: &Opts) -> Result<String, String>
         }
     }
 
-    rows.retain(|r| r.drss.unsigned_abs() >= opts.min_delta_kb);
-    rows.sort_by_key(|r| (std::cmp::Reverse(r.drss.unsigned_abs()), r.pid));
+    rows.retain(|r| r.rank_kb >= opts.min_delta_kb);
+    rows.sort_by_key(|r| (std::cmp::Reverse(r.rank_kb), r.pid));
     rows.truncate(opts.top);
 
     let span = b_at.saturating_sub(a_at) / 1000;
@@ -192,7 +241,11 @@ pub fn render(a_text: &str, b_text: &str, opts: &Opts) -> Result<String, String>
         b.procs.len()
     ));
     if opts.min_delta_kb > 0 {
-        out.push_str(&format!("   min |ΔRSS| {}", fmt_kb(opts.min_delta_kb)));
+        out.push_str(&format!(
+            "   min {} {}",
+            opts.min_delta_metric.label(),
+            fmt_kb(opts.min_delta_kb)
+        ));
     }
     out.push('\n');
     out.push_str(&format!(
@@ -214,7 +267,8 @@ pub fn render(a_text: &str, b_text: &str, opts: &Opts) -> Result<String, String>
     if rows.is_empty() {
         if opts.min_delta_kb > 0 {
             out.push_str(&format!(
-                "(no rows above min |ΔRSS| {})\n",
+                "(no rows above min {} {})\n",
+                opts.min_delta_metric.label(),
                 fmt_kb(opts.min_delta_kb)
             ));
         } else {

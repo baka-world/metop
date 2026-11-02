@@ -42,6 +42,7 @@ fn snapshot() -> Snapshot {
     );
     // pid 300 deliberately has no PSS entry: the table must show a dash.
     Snapshot {
+        delta_available: true,
         rows: vec![
             ProcRow {
                 pid: 100,
@@ -85,6 +86,8 @@ fn snapshot() -> Snapshot {
             swap_free_kb: 8_388_608,
         },
         detail_error: None,
+        details: Vec::new(),
+        detail_errors: Vec::new(),
         detail: Some(Detail {
             pid: 100,
             comm: "chrome".into(),
@@ -93,7 +96,8 @@ fn snapshot() -> Snapshot {
                 groups: vec![
                     VmaGroup {
                         label: "[heap]".into(),
-                        size_kb: 100_000,
+                        vsize_kb: 100_000,
+                        rss_kb: 80_000,
                         pss_kb: 90_000,
                         uss_kb: 88_000,
                         anon_kb: 90_000,
@@ -104,7 +108,8 @@ fn snapshot() -> Snapshot {
                                 start: 0x7f00_0000_0000,
                                 end: 0x7f00_0000_1000,
                                 perms: "rw-p".into(),
-                                size_kb: 60_000,
+                                vsize_kb: 60_000,
+                                rss_kb: 50_000,
                                 pss_kb: 60_000,
                                 uss_kb: 59_000,
                                 anon_kb: 60_000,
@@ -114,7 +119,8 @@ fn snapshot() -> Snapshot {
                                 start: 0x7f00_0000_2000,
                                 end: 0x7f00_0000_3000,
                                 perms: "rw-p".into(),
-                                size_kb: 40_000,
+                                vsize_kb: 40_000,
+                                rss_kb: 30_000,
                                 pss_kb: 30_000,
                                 uss_kb: 29_000,
                                 anon_kb: 30_000,
@@ -124,7 +130,8 @@ fn snapshot() -> Snapshot {
                     },
                     VmaGroup {
                         label: "/usr/lib/libc.so.6".into(),
-                        size_kb: 2_000,
+                        vsize_kb: 2_000,
+                        rss_kb: 1_500,
                         pss_kb: 1_000,
                         uss_kb: 200,
                         anon_kb: 0,
@@ -134,7 +141,8 @@ fn snapshot() -> Snapshot {
                             start: 0x7f00_0001_0000,
                             end: 0x7f00_0001_0800,
                             perms: "r-xp".into(),
-                            size_kb: 2_000,
+                            vsize_kb: 2_000,
+                            rss_kb: 1_500,
                             pss_kb: 1_000,
                             uss_kb: 200,
                             anon_kb: 0,
@@ -181,6 +189,8 @@ fn snapshot() -> Snapshot {
             (300, "/opt/google/chrome/chrome".to_string()),
             (400, "/usr/sbin/root-daemon".to_string()),
         ])),
+        pid_cmdline: Arc::new(HashMap::new()),
+        pid_start: Arc::new(HashMap::new()),
         pid_cgroup: Arc::new(HashMap::from([
             (
                 100,

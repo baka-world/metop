@@ -27,7 +27,7 @@ RSS 会把每个共享页在每个进程里各算一遍，多进程应用因此�
 ## 功能
 
 - **进程视图**：RSS / PSS / USS / PSS÷RSS / Δ·s⁻¹，SHARE 条与主题色板的 PSS 构成条（图例仅在进程视图显示）。
-- **VMA 详情**：按映射聚合，再展开成逐 VMA（地址区间、权限、PSS/USS/anon/swap/size）。
+- **VMA 详情**：按映射聚合，再展开成逐 VMA（地址区间、权限、PSS/USS/anon/swap/虚拟大小）。
 - **cgroup v2 视图**：`memory.current` / `memory.stat` / `memory.max` / `memory.events`、PSI（`some`/`full`）、OOM 增量，并能下钻到子树里的进程。
 - **apps treemap**：按应用聚合（systemd `app-*.scope` → exe → comm），面积 ∝ PSS，长尾折叠为 `others`。
 - **统一趋势窗口**：进程、应用、cgroup PSI 和 OOM 历史共用可配置的时间轴。
@@ -134,15 +134,44 @@ metop --diff a.json b.json --min-delta 50M
 
 ```sh
 metop --json > a.json                                      # 一次快照，PID 稳定排序
+metop --json --fields help                                 # 列出当前快照可用路径
 metop --json --fields procs.pid,procs.rss_kb > small.json  # 194 KB -> 23 KB
-metop --json --fields apps.name,apps.pss_kb > apps.json
-sleep 30; metop --json > b.json
-metop --diff a.json b.json --min-delta 50M
+metop --json --fields apps.name,apps.source,apps.pss_kb > apps.json
+metop --json --pid $$ --fields detail.groups --vmas        # 逐 VMA 详情
+metop --diff a.json b.json --min-delta 50M --min-delta-metric max
 ```
 
-快照的 `apps` 数组包含全部应用分组，不会像 treemap 那样折叠为 `others`。每组有 `name`、`pss_kb`、`uss_kb`、`rss_kb`、`procs` 和已排序的 `pids`；分组按 PSS 降序、名称升序排列。PSS 和 USS 只汇总可读取的 rollup，可能是不完整值。
+schema 为 `metop.snapshot.v2`；`schema` 和 `at_unix_ms` 始终保留。`--diff`
+仍能读取 v1 和旧的 `mtop.snapshot.v1` 快照，历史文件可以继续比较。
 
-`--diff` 输出 ΔRSS / ΔPSS、当前值与 `new`/`gone` 标记；写快照的进程本身按 `self_pid` 排除。
+`procs[]` 包含 `pid`、`comm`、`exe`、`cmdline`、`start_unix_ms`、`cgroup`、
+`rss_kb`、`delta_kb`、`denied`、`no_mm`、`pss_age_ms` 和 `pss`。不可读时
+`cgroup` / `exe` 为 `null`，`cmdline` 是 argv 数组。单次 `--json` 没有上一次
+样本，所以 `delta_kb` 是 `null` 而不是 `0`；变化请用 `--diff` 或比较两份快照。
+
+`procs[].rss_kb` 来自廉价的 `statm` sweep，`pss.rss_kb` 来自之后的
+`smaps_rollup`；两者采样时点不同，可能差几个页（实测最大约 1.5 MB）。
+PSS/rollup 分析用 `pss.rss_kb`，排序视图用 `procs[].rss_kb`，不要把两者当成
+同一次测量；`pss_age_ms` 只描述后者。
+
+`apps` 数组包含全部应用分组，不会像 treemap 那样折叠为 `others`。每组有
+`name`、`source`（`scope` / `exe` / `comm` / `mixed`）、`pss_kb`、`uss_kb`、
+`rss_kb`、`procs` 和已排序的 `pids`；分组按 PSS 降序、名称升序排列。PSS 和
+USS 只汇总可读取的 rollup，可能是不完整值。
+
+`--json --pid PID` 会附带 `detail`；`--no-detail` 可显式关闭，而
+`--fields procs.pid` 这类投影会跳过 `smaps` 读取。重复 `--pid` 或用
+`--pids 9671,9226` 可以在一次运行里请求多个 VMA 详情：结果放在 `details[]`，
+失败项放在 `detail_errors[]`，共享同一个 `at_unix_ms`。单个 pid 仍使用
+`detail`；`--fields details` 选择数组形式。`detail.groups[]` 有
+`label`、`vsize_kb`、`rss_kb`、`pss_kb`、`uss_kb`、`anon_kb`、`swap_kb` 和
+`vma_count`。`vsize_kb` 是虚拟地址空间（内核 `Size`），不是常驻内存；稀疏映射
+可能非常大。`--vmas` 额外输出 `vma_list[]`，逐项包含 `start`、`end`、`perms`、
+`vsize_kb`、`rss_kb`、`pss_kb`、`uss_kb`、`anon_kb` 和 `swap_kb`。
+
+`--diff` 输出 ΔRSS / ΔPSS、当前值与 `new`/`gone` 标记；写快照的进程本身按
+`self_pid` 排除。`--min-delta-metric` 可选 `rss`、`pss` 或 `max`（默认），同时
+控制阈值和排序，因此 RSS 不变但 PSS 变化大的进程不会被隐藏。
 
 ## 环境与权限
 

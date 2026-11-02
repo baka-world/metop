@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Requirements and design constraints
+    url: https://github.com/baka-world/metop/blob/main/docs/REQUIREMENTS.md
+    about: Read the data sources, precision caveats, performance budget and known risks first.
+  - name: Release and version policy
+    url: https://github.com/baka-world/metop/blob/main/docs/RELEASING.md
+    about: How versions, changelog entries and artifacts are produced.

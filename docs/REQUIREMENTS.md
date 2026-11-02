@@ -51,16 +51,16 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | F12 | 进程内存构成：anon / file / shmem / swap-pss / THP / KSM，表格里用堆叠条（主题色板且四类颜色互异、footer 图例仅进程视图、16 格、非零类别至少 1 格）、详情页给出数值 | 实机：chrome `anon 243M file 57M shmem 4.3M`，与 `/proc/PID/smaps_rollup` 一致 |
 | F13 | 详情页可用 `/` 或 `f` 过滤映射名，与进程过滤互不干扰 | `detail_filter_narrows_mappings`、`editing_targets_the_detail_filter...`、`slash_filters_each_view_and_remains_literal_in_paths` |
 | F14 | `--json` 输出一次性快照：稳定按 PID 排序、显式 `_kb` 单位、带 schema 版本与 `self_pid` | `tests/json.rs` 通过真实二进制校验 |
-| F15 | 详情页把映射展开为逐 VMA（地址区间、权限、PSS/USS/anon/swap/size） | `enter_expands_a_group_into_its_individual_vmas`、实机 1266 个 VMA |
-| F16 | `--diff A.json B.json` 按 \|ΔRSS\| 排序输出，标注 new/gone，排除快照写者自身 | `tests/diff.rs`（4 个场景） |
+| F15 | 详情页把映射展开为逐 VMA（地址区间、权限、PSS/USS/anon/swap/虚拟大小） | `enter_expands_a_group_into_its_individual_vmas`、实机 1266 个 VMA |
+| F16 | `--diff A.json B.json` 按 `max(\|ΔRSS\|, \|ΔPSS\|)` 排序输出（可用 `--min-delta-metric` 切换），标注 new/gone，排除快照写者自身 | `tests/diff.rs`（含 PSS-only 场景） |
 | F17 | `Tab` 切换 cgroup v2 视图：path/current/anon/file/kernel/slab/max/oom，按 current 或构成排序、可过滤 | `tab_switches_to_the_cgroup_view`、`cgroup_view_sorts_and_filters`、实机 174 个 cgroup |
 | F18 | `--json` 附带 `cgroups` 数组（path/current/anon/file/kernel/slab/shmem/limit/oom_kills） | `tests/json.rs` |
 | F19 | cgroup 视图 `Enter` 下钻出子树内进程（PID/COMM/RSS/PSS/占比），`Esc` 返回 | `cgroup_drill_lists_members_of_the_subtree`、`drill_down_uses_subtree_membership` |
 | F20 | OOM 事件增量：列显示累计值，采样间隔内新增时标 `▲` 且标题汇总；首帧不算增量 | `tab_switches_to_the_cgroup_view`（`2▲` + 标题断言） |
-| F21 | `--diff --min-delta SIZE --top N`：过滤小变化、限制行数；非法值退出码 2 | `tests/diff.rs`（阈值/条数/坏参数） |
+| F21 | `--diff --min-delta SIZE --min-delta-metric rss\|pss\|max --top N`：过滤小变化、限制行数；非法值退出码 2 | `tests/diff.rs`（阈值/指标/条数/坏参数） |
 | F22 | PSI：表头显示系统 `some/full avg10`，cgroup 视图有 `PSI10` 列并按 5%/20% 上色，右上角画选中项走势（固定 0–100% 刻度） | `pressure_parses_some_and_full`、`cgroup_psi_history_is_recorded_and_plotted`、渲染断言 `psi 1.5/0.2%` 与 `12.5%` |
 | F23 | `--json` 输出 `pressure{some10,full10}` 与每个 cgroup 的 `psi_some10/psi_full10` | `tests/json.rs` |
-| F24 | `--json --fields a.b,c` 点号路径投影（数组按记录投影、null 段保留、`schema`/`at_unix_ms` 恒在、未知路径退出 2） | `tests/json.rs` + 4 个投影单测 |
+| F24 | `--json --fields a.b,c` 点号路径投影（数组按记录投影、null 段保留、`schema`/`at_unix_ms` 恒在、未知路径退出 2 并提示失败段的子键；请求 `detail` 时自动保留 `detail_error`；`--fields help` 列出路径） | `tests/json.rs` + 投影单测 |
 | F25 | OOM 时间序列：每个扫描点记录一次 `oom_recent`，使用共享时间窗口 | `histories_share_elapsed_window_and_only_scans_record_cgroup_values`、`timed_spark_covers_window_and_sums_events` |
 | F26 | apps 视图：面积 ∝ 应用内存，分组按 cgroup app scope → exe → comm，长尾折叠为 `others` | `apps.rs` 单测（scope 解析/合并/折叠）、`apps_view_groups_processes_and_drills_into_the_process_table` |
 | F27 | apps 视图选中并用 `Enter` 下钻到该应用的进程（`Esc` 清除过滤） | 同上 + `selected_row_is_tinted...` 同源的渲染测试 |
@@ -70,8 +70,14 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | F32 | 鼠标支持：启用/退出时关闭鼠标捕获；点击表格行/treemap 图块选中，再点一次执行 Enter（详情/展开/下钻）；滚轮滚动；footer 为可点击命令栏，帮助层可滚轮滚动、点击外部关闭 | `mouse_selects_rows_scrolls_and_clicks_footer_buttons`、`mouse_click_selects_a_treemap_tile`、实机 pty 点击 `[? Help]` |
 | F31 | 每个视图（进程 / cgroup / apps / VMA 详情 / cgroup 下钻）有 `?` 帮助面板，解释顶部状态、列含义、标记和按键；支持中英文（`--lang auto\|en\|zh`、`METOP_LANG`、运行时 `l`），不引入配置文件 | `i18n.rs` 单测、`help_overlay_is_per_page_and_bilingual`、`unknown_language_is_a_usage_error` |
 | F33 | `--history SECONDS` 设置进程/apps/cgroup PSI/OOM 共用的时间窗口（默认 120，范围 1–3600 秒）；缺失采样留空 | `histories_share_elapsed_window_and_only_scans_record_cgroup_values`、`long_history_draws_old_and_new_measurements_in_the_header`、`history_requires_a_bounded_positive_integer` |
-| F34 | `--json` 输出不折叠的 `apps` 分组，支持字段投影；PSS/USS 只汇总可读 rollup | `snapshot_is_sorted_and_self_consistent`、`apps_fields_project_each_record` |
+| F34 | `--json` 输出不折叠的 `apps` 分组，带 `source`（scope/exe/comm/mixed）且支持字段投影；PSS/USS 只汇总可读 rollup | `snapshot_is_sorted_and_self_consistent`、`apps_fields_project_each_record`、`mixed_derivation_sources_are_marked` |
 | F35 | `Ctrl-d/u` 按实际视口翻半屏；`Ctrl-f/b` 与 `PgDn/PgUp` 翻整屏；过滤输入中 `Ctrl-w/u` 删除前词 / 清空 | `vim_paging_uses_the_current_viewport_and_preserves_filter_key`、`filter_control_keys_edit_unicode_paths_and_cancel_safely`、`help_paging_uses_wrapped_viewport_and_can_move_back_from_end` |
+| F36 | `--json` v2 进程身份：`procs[].exe`、`cmdline`、`start_unix_ms`、`cgroup`；不可读时为 null | `snapshot_is_sorted_and_self_consistent` |
+| F37 | `--json --pid` 的 `detail.groups[]` 提供 `rss_kb`、`vsize_kb`、`vma_count`；`--vmas` 额外输出 `vma_list[]` 且总量与组一致 | `detail_is_serialized_for_the_requested_pid`、`vma_list_is_opt_in_and_totals_match_the_group` |
+| F38 | 单次 `--json` 的 `delta_kb` 为 null；只有存在上一次采样时才输出数值 | `one_shot_snapshot_has_no_numeric_delta` |
+| F39 | `--json --pid --no-detail` 或只投影 `procs` 时不读取 `smaps`；`--detail` 强制读取 | `process_only_projection_skips_detail` |
+| F40 | 仓库提供 issue 表单、PR 模板、标签/里程碑约定和 issue→修复→验证→发布流程 | `CONTRIBUTING.md`、`.github/ISSUE_TEMPLATE/*`、`.github/pull_request_template.md` |
+| F41 | `--pid` 可重复或 `--pids A,B` 一次采样多个详情：`details[]` + `detail_errors[]`，共享 `at_unix_ms`；非法/重复 pid 退出 2 | `multiple_pids_export_details_and_errors`、`pid_lists_reject_empty_duplicate_and_malformed_entries` |
 
 ## 5. 数据来源与精度
 
@@ -151,7 +157,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 
 | 项 | 状态 |
 |---|---|
-| 功能需求 F1–F35 | 全部实现，逐项有测试或实机抓帧 |
+| 功能需求 F1–F41 | 全部实现，逐项有测试或实机抓帧 |
 | 自动化测试 / clippy | `cargo test --release` 通过；clippy 无 warning |
 | 单文件分发 | `cargo build --release` → 1.4 MB，无运行时依赖 |
 | LICENSE | MIT（与 `Cargo.toml` 一致） |

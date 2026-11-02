@@ -456,7 +456,8 @@ const DETAIL_EN: Doc = Doc {
         Section {
             heading: "Table",
             body: &[
-                "Mappings are aggregated by name; PSS/USS/anon/swap/size/VMAs are sums.",
+                "Mappings are aggregated by name; PSS/USS/anon/swap/virtual size/VMAs are sums.",
+                "Virtual size is address space, not resident memory; sparse mappings can be huge.",
                 "Enter expands a group into individual VMAs with address range and permissions.",
                 "z/Z collapse or expand all; / or f filters mapping names; Esc leaves detail.",
                 "PRIV|SHARED bar: USS vs (PSS - USS), scaled to the largest group.",
@@ -480,7 +481,8 @@ const DETAIL_ZH: Doc = Doc {
         Section {
             heading: "表格",
             body: &[
-                "映射按名称聚合；PSS/USS/anon/swap/size/VMAs 都是求和值。",
+                "映射按名称聚合；PSS/USS/anon/swap/虚拟大小/VMAs 都是求和值。",
+                "虚拟大小是地址空间，不等于常驻内存；稀疏映射可能非常大。",
                 "Enter 把一组展开成逐 VMA，显示地址区间和权限。",
                 "z/Z 全部收起/展开；/ 或 f 过滤映射名；Esc 退出详情。",
                 "PRIV|SHARED 条：USS 与 (PSS - USS)，按最大组缩放。",

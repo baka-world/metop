@@ -27,7 +27,7 @@ RSS sums to roughly **2.2×** the real number system-wide (2.4× for Chrome). me
 ## Features
 
 - **Process view** — RSS / PSS / USS / PSS÷RSS / Δ·s⁻¹, share bars and a theme-coloured PSS-composition bar (legend in the process view).
-- **VMA detail** — aggregate by mapping, then expand one mapping into its individual VMAs (address range, perms, PSS/USS/anon/swap/size).
+- **VMA detail** — aggregate by mapping, then expand one mapping into its individual VMAs (address range, perms, PSS/USS/anon/swap/virtual size).
 - **cgroup v2 view** — `memory.current` / `memory.stat` / `memory.max` / `memory.events`, PSI (`some`/`full`), OOM deltas, and drill-down into a subtree's processes.
 - **App treemap** — processes grouped into applications (systemd `app-*.scope` → exe → comm), area ∝ PSS, long tail folded into `others`.
 - **Shared trend window** — process, app, cgroup PSI and OOM histories use the same configurable time axis.
@@ -134,15 +134,51 @@ All trend views use the same elapsed-time window (`--history`, 120 seconds by de
 
 ```sh
 metop --json > a.json                      # one snapshot, stable pid order
+metop --json --fields help                 # paths available in this snapshot
 metop --json --fields procs.pid,procs.rss_kb > small.json   # 194 KB -> 23 KB
-metop --json --fields apps.name,apps.pss_kb > apps.json
-sleep 30; metop --json > b.json
-metop --diff a.json b.json --min-delta 50M
+metop --json --fields apps.name,apps.source,apps.pss_kb > apps.json
+metop --json --pid $$ --fields detail.groups --vmas         # per-VMA detail
+metop --diff a.json b.json --min-delta 50M --min-delta-metric max
 ```
 
-The snapshot's `apps` array contains every application group without the treemap's `others` folding. Each record has `name`, `pss_kb`, `uss_kb`, `rss_kb`, `procs` and sorted `pids`; groups are sorted by descending PSS, then name. PSS and USS sum only readable rollups and can therefore be partial.
+The schema is `metop.snapshot.v2`; `schema` and `at_unix_ms` are always kept.
+`--diff` still reads v1 and legacy `mtop.snapshot.v1` captures, so old files
+remain comparable.
 
-`--diff` prints ΔRSS / ΔPSS, current values and `new`/`gone` markers; the snapshot writer itself is excluded via `self_pid`.
+`procs[]` contains `pid`, `comm`, `exe`, `cmdline`, `start_unix_ms`, `cgroup`,
+`rss_kb`, `delta_kb`, `denied`, `no_mm`, `pss_age_ms` and `pss`. `cgroup` and
+`exe` are `null` when unreadable; `cmdline` is an argv array. A single
+`--json` run has no previous sample, so `delta_kb` is `null`, not `0`; use
+`--diff` (or compare two snapshots) for changes.
+
+`procs[].rss_kb` comes from the cheap `statm` sweep; `pss.rss_kb` comes from a
+later `smaps_rollup` walk. They are sampled at different instants and can
+differ by a few pages (observed up to ~1.5 MB). Use `pss.rss_kb` inside a
+PSS/rollup analysis, `procs[].rss_kb` for the ranking view, and do not treat
+the two as one measurement. `pss_age_ms` describes the rollup sample only.
+
+The `apps` array contains every application group without the treemap's
+`others` folding. Each record has `name`, `source` (`scope`, `exe`, `comm`, or
+`mixed`), `pss_kb`, `uss_kb`, `rss_kb`, `procs` and sorted `pids`; groups are
+sorted by descending PSS, then name. PSS and USS sum only readable rollups and
+can therefore be partial.
+
+`detail` is serialized for `--json --pid PID`; `--no-detail` suppresses it, and
+a projection such as `--fields procs.pid` skips the `smaps` walk entirely.
+Repeat `--pid` or use `--pids 9671,9226` to request several VMA details in one
+run: they are emitted as `details[]`, with failures in `detail_errors[]`, so
+all samples share one `at_unix_ms`. The singular `detail` remains for one pid;
+`--fields details` selects the array form.
+`detail.groups[]` has `label`, `vsize_kb`, `rss_kb`, `pss_kb`, `uss_kb`,
+`anon_kb`, `swap_kb` and `vma_count`. `vsize_kb` is virtual address space (the
+kernel's `Size`), not resident memory; sparse mappings can be enormous.
+`--vmas` adds `vma_list[]` with `start`, `end`, `perms`, `vsize_kb`, `rss_kb`,
+`pss_kb`, `uss_kb`, `anon_kb` and `swap_kb` per VMA.
+
+`--diff` prints ΔRSS / ΔPSS, current values and `new`/`gone` markers; the
+snapshot writer itself is excluded via `self_pid`. `--min-delta-metric` selects
+`rss`, `pss`, or `max` (default) for both the threshold and row ranking, so a
+PSS-only change is not hidden by flat RSS.
 
 ## Requirements and permissions
 
@@ -171,6 +207,11 @@ cargo test --release
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 ```
+
+Changes start as an issue and follow the workflow in
+[CONTRIBUTING.md](CONTRIBUTING.md): issue → triage → branch → verification →
+PR → release. Use the issue forms for reproducible bug reports and scoped
+feature requests.
 
 ## License
 

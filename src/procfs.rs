@@ -127,7 +127,9 @@ pub struct Vma {
     pub end: u64,
     /// "rwxp"-style: read/write/execute plus private or shared.
     pub perms: String,
-    pub size_kb: u64,
+    /// Virtual size (kernel `Size`), not resident memory.
+    pub vsize_kb: u64,
+    pub rss_kb: u64,
     pub pss_kb: u64,
     pub uss_kb: u64,
     pub anon_kb: u64,
@@ -137,7 +139,9 @@ pub struct Vma {
 #[derive(Clone, Debug)]
 pub struct VmaGroup {
     pub label: String,
-    pub size_kb: u64,
+    /// Sum of VMA virtual sizes; can be sparse/uncommitted.
+    pub vsize_kb: u64,
+    pub rss_kb: u64,
     pub pss_kb: u64,
     pub uss_kb: u64,
     pub anon_kb: u64,
@@ -214,14 +218,16 @@ pub fn read_smaps(pid: u32) -> Result<SmapsReport, procfs::ProcError> {
         let key = label(&m.pathname);
         let pss_kb = bytes(map, "Pss") / KB;
         let uss_kb = (bytes(map, "Private_Clean") + bytes(map, "Private_Dirty")) / KB;
-        let size_kb = bytes(map, "Size") / KB;
+        let vsize_kb = bytes(map, "Size") / KB;
+        let rss_kb = bytes(map, "Rss") / KB;
         let anon_kb = bytes(map, "Anonymous") / KB;
         let swap_kb = bytes(map, "Swap") / KB;
         let vma = Vma {
             start: m.address.0,
             end: m.address.1,
             perms: perms_string(m.perms),
-            size_kb,
+            vsize_kb,
+            rss_kb,
             pss_kb,
             uss_kb,
             anon_kb,
@@ -230,7 +236,8 @@ pub fn read_smaps(pid: u32) -> Result<SmapsReport, procfs::ProcError> {
         match idx.get(&key) {
             Some(&i) => {
                 let g = &mut groups[i];
-                g.size_kb += size_kb;
+                g.vsize_kb += vsize_kb;
+                g.rss_kb += rss_kb;
                 g.pss_kb += pss_kb;
                 g.uss_kb += uss_kb;
                 g.anon_kb += anon_kb;
@@ -242,7 +249,8 @@ pub fn read_smaps(pid: u32) -> Result<SmapsReport, procfs::ProcError> {
                 idx.insert(key.clone(), groups.len());
                 groups.push(VmaGroup {
                     label: key,
-                    size_kb,
+                    vsize_kb,
+                    rss_kb,
                     pss_kb,
                     uss_kb,
                     anon_kb,
@@ -291,6 +299,78 @@ pub fn read_cmdline(pid: u32) -> String {
         .and_then(|p| p.cmdline())
         .map(|args| args.join(" "))
         .unwrap_or_default()
+}
+
+/// pid -> argv, for the whole system. Runs on the slow (5 s) cadence next to
+/// the executable map; the 1 Hz RSS sweep must stay cheap.
+pub fn pid_cmdline() -> HashMap<u32, Vec<String>> {
+    let mut out = HashMap::new();
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return out;
+    };
+    for entry in entries.flatten() {
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|s| s.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        let Ok(raw) = std::fs::read(format!("/proc/{pid}/cmdline")) else {
+            continue;
+        };
+        let args: Vec<String> = raw
+            .split(|b| *b == 0)
+            .filter(|arg| !arg.is_empty())
+            .map(|arg| String::from_utf8_lossy(arg).into_owned())
+            .collect();
+        if !args.is_empty() {
+            out.insert(pid, args);
+        }
+    }
+    out
+}
+
+/// pid -> process start time in Unix milliseconds. The kernel reports start
+/// time as clock ticks since boot (`/proc/PID/stat` field 22).
+pub fn pid_start() -> HashMap<u32, u64> {
+    let mut out = HashMap::new();
+    let (Ok(btime), tps) = (procfs::boot_time_secs(), procfs::ticks_per_second()) else {
+        return out;
+    };
+    if tps == 0 {
+        return out;
+    }
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return out;
+    };
+    for entry in entries.flatten() {
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|s| s.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
+            continue;
+        };
+        let Some(rest) = stat.rfind(')').map(|end| &stat[end + 1..]) else {
+            continue;
+        };
+        let Some(ticks) = rest
+            .split_whitespace()
+            .nth(19)
+            .and_then(|v| v.parse::<u64>().ok())
+        else {
+            continue;
+        };
+        out.insert(
+            pid,
+            btime.saturating_mul(1000) + ticks.saturating_mul(1000) / tps,
+        );
+    }
+    out
 }
 
 #[derive(Default, Clone, Debug)]
