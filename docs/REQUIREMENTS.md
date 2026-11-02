@@ -67,6 +67,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | F28 | treemap 布局不变量：在界内、互不重叠、面积成比例 | `treemap_tiles_stay_inside_and_do_not_overlap`、`treemap_area_is_proportional_within_a_few_percent` |
 | F29 | apps 视图右上角显示选中应用的历史（120 点），按指标分别存储；RSS 模式在标题标注"overcounts shared" | `apps_history_tracks_each_metric_separately`、实机 `▅▇▇█…` |
 | F30 | 七套内置配色：`default`、`btop`、`dracula`、`gruvbox-dark`、`kanagawa-wave`、`light`、`ansi16`；后四套的颜色取自 btop 自带主题文件；`--theme`、`MTOP_THEME`、运行时 `t` 循环；不引入配置文件；默认主题的 chrome 配色（高亮/标题/严重度/treemap）与旧版逐色一致，PSS 构成使用固定色板；按终端能力自动以真彩/256/16 色渲染（btop 的 6×6×6 + 灰阶量化规则），`--color auto\|truecolor\|256\|16` 可覆盖 | `theme.rs` 单测（含量化）、`theme_key_cycles_...`、`ansi256_rendering_uses_indexed_colours_only`、`unknown_colour_mode_is_a_usage_error` |
+| F31 | 每个视图（进程 / cgroup / apps / VMA 详情 / cgroup 下钻）有 `?` 帮助面板，解释顶部状态、列含义、标记和按键；支持中英文（`--lang auto\|en\|zh`、`MTOP_LANG`、运行时 `l`），不引入配置文件 | `i18n.rs` 单测、`help_overlay_is_per_page_and_bilingual`、`unknown_language_is_a_usage_error` |
 
 ## 5. 数据来源与精度
 
@@ -114,6 +115,8 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | `g`/`G`、`Home`/`End` | 顶部 / 底部 |
 | `s` | 循环排序键（重置选择） |
 | `r` | 反向排序 |
+| `?` | 打开当前页面帮助（进程/cgroup/apps/详情/下钻），`Esc`/`?`/`q` 关闭，`j/k` 滚动，`l` 切语言 |
+| `l` | 切换界面语言（English / 中文） |
 | `t` | 循环配色主题（`default` → `btop` → `dracula` → `gruvbox-dark` → `kanagawa-wave` → `light` → `ansi16`；立即重绘） |
 | `Tab` | 进程视图 → cgroup 视图 → apps 视图（循环；切换时退出详情与下钻） |
 | `Enter`（cgroup） | 列出该 cgroup 子树内的进程；`Esc` 返回列表 |
@@ -142,7 +145,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | 项 | 状态 |
 |---|---|
 | 功能需求 F1–F23 | 全部实现，逐项有测试或实机抓帧 |
-| 自动化测试 / clippy | 91 tests，0 warning |
+| 自动化测试 / clippy | 97 tests，0 warning |
 | 单文件分发 | `cargo build --release` → 1.4 MB，无运行时依赖 |
 | LICENSE | MIT（与 `Cargo.toml` 一致） |
 | `--version` / `--help` | 已提供，`tests/cli.rs` 覆盖 |

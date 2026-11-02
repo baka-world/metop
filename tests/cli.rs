@@ -40,6 +40,8 @@ fn help_lists_the_interfaces_we_actually_have() {
         "gruvbox-dark, kanagawa-wave, light, ansi16",
         "--color",
         "auto, truecolor, 256, 16",
+        "--lang",
+        "auto, en, zh",
         "USAGE",
     ] {
         assert!(text.contains(needle), "help missing {needle}:\n{text}");
@@ -56,6 +58,17 @@ fn unknown_theme_is_a_usage_error() {
 
     let missing = run(&["--theme"]);
     assert_eq!(missing.status.code(), Some(2));
+}
+
+#[test]
+fn unknown_language_is_a_usage_error() {
+    let out = run(&["--lang", "fr"]);
+    assert_eq!(out.status.code(), Some(2));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("auto, en, zh"), "stderr: {err}");
+
+    let ok = run(&["--lang", "zh", "--version"]);
+    assert!(ok.status.success());
 }
 
 #[test]

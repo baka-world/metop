@@ -2,13 +2,24 @@ use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Sparkline, Table};
+use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Sparkline, Table};
 
 use crate::app::{App, DetailRow, View};
 use crate::cgroup::CgroupMem;
+use crate::i18n::T;
 use crate::model::{PSS_MAX_AGE, SortKey};
 use crate::procfs::fmt_kb;
 use crate::theme::Palette;
+
+macro_rules! tr_fmt {
+    ($t:expr, $en:literal, $zh:literal $(, $arg:expr)* $(,)?) => {
+        if $t.is_zh() {
+            format!($zh $(, $arg)*)
+        } else {
+            format!($en $(, $arg)*)
+        }
+    };
+}
 
 const SHARE_W: usize = 6;
 const MIX_W: usize = 16;
@@ -61,6 +72,7 @@ fn truncate(s: &str, n: usize) -> String {
 
 pub fn draw(f: &mut Frame, app: &mut App) {
     let area = f.area();
+    let t = T(app.lang);
     let chunks = Layout::vertical([
         Constraint::Length(4),
         Constraint::Min(6),
@@ -74,11 +86,15 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     match (app.snap.is_some(), app.detail, app.view) {
         (true, true, View::Procs) if has_detail => detail_view(f, chunks[1], app),
         (true, true, View::Procs) => {
-            let cause = detail_error.unwrap_or_else(|| "waiting for sampler…".into());
+            let cause = detail_error.unwrap_or_else(|| t.waiting_sampler().into());
             f.render_widget(
-                Paragraph::new(format!("vm mappings unavailable\n\n{cause}"))
+                Paragraph::new(format!("{}\n\n{cause}", t.vm_unavailable()))
                     .wrap(ratatui::widgets::Wrap { trim: true })
-                    .block(Block::new().borders(Borders::ALL).title(" detail ")),
+                    .block(
+                        Block::new()
+                            .borders(Borders::ALL)
+                            .title(t.pick(" detail ", " 详情 ")),
+                    ),
                 chunks[1],
             );
         }
@@ -93,7 +109,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         (true, _, _) => table_view(f, chunks[1], app),
         (false, ..) => {
             f.render_widget(
-                Paragraph::new("sampling /proc…")
+                Paragraph::new(t.sampling())
                     .alignment(Alignment::Center)
                     .block(Block::new().borders(Borders::ALL).title(" mtop ")),
                 chunks[1],
@@ -101,10 +117,14 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         }
     }
     footer(f, chunks[2], app);
+    if app.help.is_some() {
+        help_overlay(f, area, app);
+    }
 }
 
 fn header(f: &mut Frame, area: Rect, app: &App) {
     let p = app.theme.palette;
+    let t = T(app.lang);
     let cols = Layout::horizontal([Constraint::Min(48), Constraint::Length(32)]).split(area);
     let Some(snap) = &app.snap else {
         f.render_widget(Paragraph::new("mtop"), cols[0]);
@@ -126,13 +146,20 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
     let swap_used = snap.mem.swap_total_kb.saturating_sub(snap.mem.swap_free_kb);
     let line1 = Line::from(vec![
         Span::styled(" mtop ", p.highlight().add_modifier(Modifier::BOLD)),
-        Span::raw(format!(" {} procs  mem ", snap.rows.len())),
+        Span::raw(tr_fmt!(
+            t,
+            " {} procs  mem ",
+            " {} 进程  内存 ",
+            snap.rows.len()
+        )),
         Span::styled(
             format!("{}/{}", fmt_kb(used), fmt_kb(snap.mem.total_kb)),
             Style::new().fg(mem_color).add_modifier(Modifier::BOLD),
         ),
-        Span::raw(format!(
+        Span::raw(tr_fmt!(
+            t,
             "  avail {}  cached {}  swap {}/{}",
+            "  可用 {}  缓存 {}  交换 {}/{}",
             fmt_kb(snap.mem.avail_kb),
             fmt_kb(snap.mem.cached_kb),
             fmt_kb(swap_used),
@@ -146,13 +173,18 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
     let eligible = snap.rows.len().saturating_sub(no_mm);
     let mut line2 = vec![
         Span::styled(
-            format!(" sweep {:.0}ms ", snap.sweep_ms),
+            tr_fmt!(t, " sweep {:.0}ms ", " 扫描 {:.0}ms ", snap.sweep_ms),
             Style::new().fg(p.dim),
         ),
-        Span::styled(format!("pss {:.0}ms ", snap.pss_ms), Style::new().fg(p.dim)),
         Span::styled(
-            format!(
+            tr_fmt!(t, "pss {:.0}ms ", "页表 {:.0}ms ", snap.pss_ms),
+            Style::new().fg(p.dim),
+        ),
+        Span::styled(
+            tr_fmt!(
+                t,
                 "coverage {}/{} = {} ",
+                "覆盖 {}/{} = {} ",
                 snap.covered,
                 eligible,
                 fmt_kb(snap.covered_pss_kb)
@@ -162,7 +194,7 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
     ];
     if denied > 0 {
         line2.push(Span::styled(
-            format!("{denied} n/a (needs root) "),
+            tr_fmt!(t, "{denied} n/a (needs root) ", "{denied} 需 root "),
             Style::new().fg(p.warn),
         ));
     }
@@ -175,11 +207,17 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
         p.dim
     };
     line2.push(Span::styled(
-        format!("psi {:.1}/{:.1}% ", psi.some10, psi.full10),
+        tr_fmt!(
+            t,
+            "psi {:.1}/{:.1}% ",
+            "压力 {:.1}/{:.1}% ",
+            psi.some10,
+            psi.full10
+        ),
         Style::new().fg(psi_color),
     ));
     line2.push(Span::styled(
-        format!("age {}ms", app.sample_age_ms()),
+        tr_fmt!(t, "age {}ms", "样本 {}ms", app.sample_age_ms()),
         Style::new().fg(p.dim),
     ));
     let line2 = Line::from(line2);
@@ -200,7 +238,7 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
                 ),
                 app.app_series(&g.name, app.app_metric),
             ),
-            None => (" apps".into(), Vec::new()),
+            None => (t.pick(" apps", " 应用").into(), Vec::new()),
         },
         View::Cgroups => match app.visible_cgroups().get(app.cgroup_sel) {
             Some(cg) => {
@@ -214,7 +252,7 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
                     hist,
                 )
             }
-            None => (" cgroups".into(), Vec::new()),
+            None => (t.pick(" cgroups", " cgroups").into(), Vec::new()),
         },
         View::Procs => match app.selected_pid() {
             Some(pid) => {
@@ -231,7 +269,7 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
                     hist.into_iter().collect(),
                 )
             }
-            None => (" rss trend".into(), Vec::new()),
+            None => (t.pick(" rss trend", " RSS 走势").into(), Vec::new()),
         },
     };
     // The cgroup sparkline has a fixed 0-100% scale (values are stored as
@@ -409,6 +447,7 @@ fn delta_span(d: i64, dim_color: Color, p: &Palette) -> Span<'static> {
 
 fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
     let p = app.theme.palette;
+    let t = T(app.lang);
     let mut state = std::mem::take(&mut app.table_state);
     let Some(snap) = &app.snap else {
         app.table_state = state;
@@ -504,24 +543,22 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
     // filled; say so instead of silently ranking unsampled rows as zero.
     let rank_incomplete = matches!(app.sort, SortKey::Pss | SortKey::Uss | SortKey::Ratio)
         && snap.covered + snap.denied.len() < snap.rows.len().saturating_sub(snap.no_mm.len());
-    let mut sort_label = format!(
-        " procs  sort {} {}  filter {} ",
+    let mut sort_label = t.procs_title(
         app.sort.label(),
         if app.desc { "↓" } else { "↑" },
         if app.filter.is_empty() {
             "-"
         } else {
             app.filter.as_str()
-        }
+        },
     );
     if let Some(name) = &app.pid_filter_name {
-        sort_label.push_str(&format!("  app: {name} (Esc clears) "));
+        sort_label.push_str(&t.app_filter(name));
     }
     if rank_incomplete {
-        sort_label.push_str(&format!(
-            " pss {}/{} · ranking incomplete ",
+        sort_label.push_str(&t.ranking_incomplete(
             snap.covered,
-            snap.rows.len().saturating_sub(snap.no_mm.len())
+            snap.rows.len().saturating_sub(snap.no_mm.len()),
         ));
     }
     let table = Table::new(
@@ -549,10 +586,11 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
 
 fn apps_view(f: &mut Frame, area: Rect, app: &mut App) {
     let p = app.theme.palette;
+    let t = T(app.lang);
     let apps: Vec<crate::apps::AppGroup> = app.visible_apps().into_iter().cloned().collect();
     if apps.is_empty() {
         f.render_widget(
-            Paragraph::new("no app groups (no PSS data yet)")
+            Paragraph::new(t.empty_apps())
                 .block(Block::new().borders(Borders::ALL).title(" apps ")),
             area,
         );
@@ -563,11 +601,10 @@ fn apps_view(f: &mut Frame, area: Rect, app: &mut App) {
     // multi-process app (2.7x on this machine). Say so instead of pretending.
     let metric_hint = match app.app_metric {
         crate::app::AppMetric::Pss => "",
-        crate::app::AppMetric::Uss => " (private only)",
-        crate::app::AppMetric::Rss => " (overcounts shared)",
+        crate::app::AppMetric::Uss => t.pick(" (private only)", "（仅私有）"),
+        crate::app::AppMetric::Rss => t.pick(" (overcounts shared)", "（重复计算共享页）"),
     };
-    let title = format!(
-        " apps  metric {}{}  filter {}  ({} groups · {}) ",
+    let title = t.apps_title(
         app.app_metric.label(),
         metric_hint,
         if app.filter.is_empty() {
@@ -576,7 +613,7 @@ fn apps_view(f: &mut Frame, area: Rect, app: &mut App) {
             app.filter.as_str()
         },
         apps.len(),
-        fmt_kb(total)
+        &fmt_kb(total),
     );
     let block = Block::new().borders(Borders::ALL).title(title);
     let inner = block.inner(area);
@@ -698,6 +735,7 @@ fn apps_list(f: &mut Frame, area: Rect, app: &mut App, apps: &[crate::apps::AppG
 
 fn cgroup_drill(f: &mut Frame, area: Rect, app: &mut App) {
     let p = app.theme.palette;
+    let t = T(app.lang);
     let mut state = std::mem::take(&mut app.drill_state);
     let (Some(snap), Some(path)) = (app.snap.as_ref(), app.drill.clone()) else {
         app.drill_state = state;
@@ -712,17 +750,18 @@ fn cgroup_drill(f: &mut Frame, area: Rect, app: &mut App) {
             format!(" {} ", truncate_left(&path, 60)),
             p.highlight().add_modifier(Modifier::BOLD),
         ),
-        Span::raw(format!(
-            " current {} · {} procs in subtree · limit {} · psi {:.1}/{:.1}% ",
-            cg.map(|c| fmt_kb(c.current_kb))
-                .unwrap_or_else(|| "—".into()),
-            members.len(),
-            cg.and_then(|c| c.limit_kb)
-                .map(fmt_kb)
-                .unwrap_or_else(|| "max".into()),
-            cg.map(|c| c.psi_some10).unwrap_or(0.0),
-            cg.map(|c| c.psi_full10).unwrap_or(0.0)
-        )),
+        Span::raw(
+            t.drill_summary(
+                &cg.map(|c| fmt_kb(c.current_kb))
+                    .unwrap_or_else(|| "—".into()),
+                members.len(),
+                &cg.and_then(|c| c.limit_kb)
+                    .map(fmt_kb)
+                    .unwrap_or_else(|| "max".into()),
+                cg.map(|c| c.psi_some10).unwrap_or(0.0),
+                cg.map(|c| c.psi_full10).unwrap_or(0.0),
+            ),
+        ),
     ]);
     let oom_hist: Vec<u64> = app
         .oom_history
@@ -734,10 +773,7 @@ fn cgroup_drill(f: &mut Frame, area: Rect, app: &mut App) {
     let oom_line = Line::from(vec![
         Span::styled("oom ", Style::new().fg(p.dim)),
         Span::styled(text_spark(&oom_hist, 60), Style::new().fg(p.crit)),
-        Span::raw(format!(
-            "  {total_kills} total · +{oom_window} in last {} scans",
-            oom_hist.len()
-        )),
+        Span::raw(t.oom_line(total_kills, oom_window, oom_hist.len())),
     ]);
     f.render_widget(
         Paragraph::new(vec![summary, oom_line]).block(Block::new().borders(Borders::BOTTOM)),
@@ -803,11 +839,7 @@ fn cgroup_drill(f: &mut Frame, area: Rect, app: &mut App) {
         ],
     )
     .header(header)
-    .block(
-        Block::new()
-            .borders(Borders::ALL)
-            .title(" procs in cgroup subtree  (Esc back) "),
-    )
+    .block(Block::new().borders(Borders::ALL).title(t.drill_title()))
     .row_highlight_style(p.highlight())
     .highlight_symbol("▸");
 
@@ -817,6 +849,7 @@ fn cgroup_drill(f: &mut Frame, area: Rect, app: &mut App) {
 
 fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
     let p = app.theme.palette;
+    let t = T(app.lang);
     let mut state = std::mem::take(&mut app.cgroup_state);
     let Some(snap) = &app.snap else {
         app.cgroup_state = state;
@@ -824,11 +857,9 @@ fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
     };
     if snap.cgroups.is_empty() {
         f.render_widget(
-            Paragraph::new(
-                "cgroup v2 memory controller not available\n\n                 (needs /sys/fs/cgroup/memory.current; v1 or a restricted hierarchy shows nothing)",
-            )
-            .wrap(ratatui::widgets::Wrap { trim: true })
-            .block(Block::new().borders(Borders::ALL).title(" cgroups ")),
+            Paragraph::new(t.cgroup_unavailable())
+                .wrap(ratatui::widgets::Wrap { trim: true })
+                .block(Block::new().borders(Borders::ALL).title(" cgroups ")),
             area,
         );
         app.cgroup_state = state;
@@ -910,8 +941,7 @@ fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
     .style(Style::new().fg(p.accent).add_modifier(Modifier::BOLD));
 
     let recent: u64 = snap.cgroups.iter().map(|c| c.oom_recent).sum();
-    let mut title = format!(
-        " cgroups  sort {} {}  filter {}  ({} of {}) ",
+    let mut title = t.cgroups_title(
         app.cgroup_sort.label(),
         if app.desc { "↓" } else { "↑" },
         if app.filter.is_empty() {
@@ -920,10 +950,10 @@ fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
             app.filter.as_str()
         },
         visible.len(),
-        snap.cgroups.len()
+        snap.cgroups.len(),
     );
     if recent > 0 {
-        title.push_str(&format!("  oom +{recent} since last sample "));
+        title.push_str(&t.oom_recent(recent));
     }
     let table = Table::new(
         rows,
@@ -951,6 +981,7 @@ fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
 
 fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
     let p = app.theme.palette;
+    let t = T(app.lang);
     let mut state = std::mem::take(&mut app.detail_state);
     let Some(d) = app.snap.as_ref().and_then(|s| s.detail.as_ref()) else {
         app.detail_state = state;
@@ -973,7 +1004,10 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
             )),
         ]),
         Line::from(vec![
-            Span::styled("pss by kind  ", Style::new().fg(p.dim)),
+            Span::styled(
+                t.pick("pss by kind  ", "PSS 构成  "),
+                Style::new().fg(p.dim),
+            ),
             Span::styled(
                 format!("anon {}  ", fmt_kb(d.rollup.pss_anon_kb)),
                 Style::new().fg(p.anon),
@@ -1000,12 +1034,11 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
             ),
         ]),
         Line::from(Span::styled(
-            format!(
-                " {} VMAs in {} groups · parsed {:.0}ms · {}",
-                r.vma_count,
+            t.vma_summary(
+                r.vma_count as usize,
                 r.groups.len(),
                 d.parse_ms,
-                truncate(&d.cmdline, 120)
+                &truncate(&d.cmdline, 120),
             ),
             Style::new().fg(p.dim),
         )),
@@ -1087,11 +1120,11 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
     ])
     .style(Style::new().fg(p.accent).add_modifier(Modifier::BOLD));
 
-    let title = if app.detail_filter.is_empty() {
-        " vm mappings by PSS  (Enter expand, Esc back, f filter) ".to_string()
+    let title = t.detail_title(if app.detail_filter.is_empty() {
+        None
     } else {
-        format!(" vm mappings by PSS  filter {} ", app.detail_filter)
-    };
+        Some(app.detail_filter.as_str())
+    });
     let table = Table::new(
         rows,
         [
@@ -1115,57 +1148,37 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
 
 fn footer(f: &mut Frame, area: Rect, app: &App) {
     let p = app.theme.palette;
+    let t = T(app.lang);
     let line = if app.editing {
+        let (label, hint) = t.editing(app.editing_detail);
         Line::from(vec![
-            Span::styled(
-                if app.editing_detail {
-                    " vma filter: "
-                } else {
-                    " filter: "
-                },
-                Style::new().fg(p.focus),
-            ),
+            Span::styled(label, Style::new().fg(p.focus)),
             Span::raw(app.edit_buf.clone()),
             Span::styled("▏", Style::new().fg(p.focus)),
-            Span::styled("   Enter 应用 · Esc 取消", Style::new().fg(p.dim)),
+            Span::styled(hint, Style::new().fg(p.dim)),
         ])
     } else if app.view == View::Apps {
         Line::from(Span::styled(
-            format!(
-                " q quit │ Tab views │ j/k select │ Enter drill into procs │ s metric ({}) │ f filter │ Esc clear ",
-                app.app_metric.label()
-            ),
+            t.apps_footer(app.app_metric.label()),
             Style::new().fg(p.dim),
         ))
     } else if app.drill.is_some() {
-        Line::from(Span::styled(
-            " q quit │ j/k scroll │ Esc back to cgroups │ Tab procs ",
-            Style::new().fg(p.dim),
-        ))
+        Line::from(Span::styled(t.drill_footer(), Style::new().fg(p.dim)))
     } else if app.view == View::Cgroups {
         Line::from(Span::styled(
-            format!(
-                " q quit │ Tab procs │ j/k │ Enter list procs │ s sort ({}) │ r reverse │ f filter path ",
-                app.cgroup_sort.label()
-            ),
+            t.cgroups_footer(app.cgroup_sort.label()),
             Style::new().fg(p.dim),
         ))
     } else if app.detail {
-        Line::from(Span::styled(
-            " q quit │ j/k │ Enter expand │ z/Z collapse/expand all │ f filter │ Esc back ",
-            Style::new().fg(p.dim),
-        ))
+        Line::from(Span::styled(t.detail_footer(), Style::new().fg(p.dim)))
     } else {
         Line::from(Span::styled(
-            format!(
-                " q quit │ Tab cgroups │ j/k move │ g/G ends │ s sort ({}) │ r reverse │ f filter │ Enter vma detail ",
-                app.sort.label()
-            ),
+            t.procs_footer(app.sort.label()),
             Style::new().fg(p.dim),
         ))
     };
     let mut legend = vec![Span::styled(
-        format!(" theme: {} · t switch · mix ", app.theme.name),
+        t.theme_line(app.theme.name),
         Style::new().fg(p.dim),
     )];
     for (color, label) in [
@@ -1178,6 +1191,56 @@ fn footer(f: &mut Frame, area: Rect, app: &App) {
         legend.push(Span::styled(format!("{label} "), Style::new().fg(p.dim)));
     }
     f.render_widget(Paragraph::new(vec![line, Line::from(legend)]), area);
+}
+
+/// Centered, scrollable per-page help. The underlying view keeps rendering so
+/// the user can still see the data behind the overlay.
+fn help_overlay(f: &mut Frame, area: Rect, app: &App) {
+    let Some(help) = &app.help else {
+        return;
+    };
+    let t = T(app.lang);
+    let doc = t.doc(help.page);
+    let p = app.theme.palette;
+
+    let width = area.width.saturating_sub(4).clamp(24, 100);
+    let height = area.height.saturating_sub(2).clamp(8, 36);
+    let rect = Rect::new(
+        area.x + (area.width - width) / 2,
+        area.y + (area.height - height) / 2,
+        width,
+        height,
+    );
+    f.render_widget(Clear, rect);
+
+    let mut lines: Vec<Line> = Vec::new();
+    for section in doc.sections {
+        lines.push(Line::from(Span::styled(
+            section.heading,
+            Style::new().fg(p.accent).add_modifier(Modifier::BOLD),
+        )));
+        for body in section.body {
+            lines.push(Line::from(*body));
+        }
+        lines.push(Line::default());
+    }
+
+    let block = Block::new()
+        .borders(Borders::ALL)
+        .title(format!(" {} ", t.help_title(help.page)))
+        .title_bottom(Line::from(Span::styled(
+            t.help_footer(),
+            Style::new().fg(p.dim),
+        )));
+    let inner = block.inner(rect);
+    let max_scroll = lines.len().saturating_sub(inner.height as usize) as u16;
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(ratatui::widgets::Wrap { trim: false })
+            .scroll((help.scroll.min(max_scroll), 0)),
+        rect,
+    );
 }
 
 #[cfg(test)]

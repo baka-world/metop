@@ -8,6 +8,7 @@ use ratatui::widgets::TableState;
 
 use crate::apps::AppGroup;
 use crate::cgroup::CgroupMem;
+use crate::i18n::{HelpPage, Lang};
 use crate::model::{Focus, ProcRow, Snapshot, SortKey};
 use crate::procfs::{Vma, VmaGroup};
 use crate::theme::{ColorSupport, Theme};
@@ -110,12 +111,23 @@ pub enum DetailRow<'a> {
     Vma(&'a VmaGroup, &'a Vma),
 }
 
+/// An open help overlay: which page's documentation is shown and how far it
+/// has been scrolled.
+pub struct HelpState {
+    pub page: HelpPage,
+    pub scroll: u16,
+}
+
 pub struct App {
     pub view: View,
     /// Active built-in theme; `t` cycles it.
     pub theme: Theme,
     /// Terminal colour depth the active palette was rendered for.
     pub support: ColorSupport,
+    /// UI language; `l` toggles it.
+    pub lang: Lang,
+    /// Open help overlay, if any.
+    pub help: Option<HelpState>,
     pub sort: SortKey,
     pub cgroup_sort: CgroupSort,
     pub cgroup_sel: usize,
@@ -172,6 +184,8 @@ impl App {
             view: View::Procs,
             theme: Theme::DEFAULT,
             support: ColorSupport::TrueColor,
+            lang: Lang::En,
+            help: None,
             sort: SortKey::Rss,
             cgroup_sort: CgroupSort::Current,
             cgroup_sel: 0,
@@ -504,9 +518,53 @@ impl App {
         self.detail_state.select(Some(self.detail_sel));
     }
 
+    fn help_page(&self) -> HelpPage {
+        match self.view {
+            View::Procs if self.detail => HelpPage::Detail,
+            View::Procs => HelpPage::Procs,
+            View::Cgroups if self.drill.is_some() => HelpPage::CgroupDrill,
+            View::Cgroups => HelpPage::Cgroups,
+            View::Apps => HelpPage::Apps,
+        }
+    }
+
+    fn help_scroll(&mut self, delta: i32) {
+        if let Some(help) = &mut self.help {
+            help.scroll = if delta >= 0 {
+                help.scroll.saturating_add(delta as u16)
+            } else {
+                help.scroll.saturating_sub((-delta) as u16)
+            };
+        }
+    }
+
     /// Returns true when the app should exit.
     pub fn on_key(&mut self, key: KeyEvent) -> bool {
         if key.kind != KeyEventKind::Press {
+            return false;
+        }
+        if self.help.is_some() {
+            match key.code {
+                KeyCode::Char('q') => return true,
+                KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => return true,
+                KeyCode::Esc | KeyCode::Char('?') => self.help = None,
+                KeyCode::Char('j') | KeyCode::Down => self.help_scroll(1),
+                KeyCode::Char('k') | KeyCode::Up => self.help_scroll(-1),
+                KeyCode::PageDown => self.help_scroll(10),
+                KeyCode::PageUp => self.help_scroll(-10),
+                KeyCode::Char('g') | KeyCode::Home => {
+                    if let Some(help) = &mut self.help {
+                        help.scroll = 0;
+                    }
+                }
+                KeyCode::Char('G') | KeyCode::End => {
+                    if let Some(help) = &mut self.help {
+                        help.scroll = u16::MAX;
+                    }
+                }
+                KeyCode::Char('l') => self.lang = self.lang.toggle(),
+                _ => {}
+            }
             return false;
         }
         if self.editing {
@@ -514,6 +572,12 @@ impl App {
         }
         match key.code {
             KeyCode::Char('q') => return true,
+            KeyCode::Char('?') => {
+                self.help = Some(HelpState {
+                    page: self.help_page(),
+                    scroll: 0,
+                });
+            }
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => return true,
             KeyCode::Tab => {
                 self.view = match self.view {
@@ -556,6 +620,7 @@ impl App {
             }
             KeyCode::Char('r') => self.desc = !self.desc,
             KeyCode::Char('t') => self.theme = self.theme.next().rendered(self.support),
+            KeyCode::Char('l') => self.lang = self.lang.toggle(),
             KeyCode::Char('f') => {
                 self.editing = true;
                 self.editing_detail = self.detail;
@@ -689,12 +754,14 @@ impl App {
         start_pid: Option<u32>,
         theme: Theme,
         support: ColorSupport,
+        lang: Lang,
         tx: std::sync::mpsc::Sender<Focus>,
         rx: std::sync::mpsc::Receiver<Snapshot>,
     ) -> std::io::Result<()> {
         let mut app = App::new(start_pid);
         app.support = support;
         app.theme = theme.rendered(support);
+        app.lang = lang;
         loop {
             let mut got = false;
             while let Ok(snap) = rx.try_recv() {

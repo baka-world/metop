@@ -29,6 +29,7 @@ RSS 会把每个共享页在每个进程里各算一遍，多进程应用因此�
 - **cgroup v2 视图**：`memory.current` / `memory.stat` / `memory.max` / `memory.events`、PSI（`some`/`full`）、OOM 增量，并能下钻到子树里的进程。
 - **apps treemap**：按应用聚合（systemd `app-*.scope` → exe → comm），面积 ∝ PSS，长尾折叠为 `others`。
 - **可脚本化**：`--json`（`--fields` 点号投影）、`--diff`（`--min-delta` / `--top`），快照按 PID 稳定排序、可直接 diff。
+- **中英文帮助**：`?` 打开当前页面的说明（进程、cgroup、应用、VMA 详情、下钻）；`--lang auto|en|zh`、`MTOP_LANG` 或运行时 `l` 切换语言。
 - **主题**：七套内置配色，其中 `btop` / `dracula` / `gruvbox-dark` / `kanagawa-wave` 的颜色取自 btop 自带主题；`--theme`、`MTOP_THEME` 或运行时 `t` 切换（不需要配置文件）。主题以真彩色定义，终端不支持 RGB 时自动量化到 256 色或 16 色，可用 `--color` 覆盖检测。
 
 ## 安装
@@ -64,6 +65,7 @@ mtop --pid 1234            # 启动即选中某个进程
 mtop --theme dracula       # default | btop | dracula | gruvbox-dark |
                            # kanagawa-wave | light | ansi16（也可用 MTOP_THEME）
 mtop --color 256           # auto | truecolor | 256 | 16
+mtop --lang zh             # auto | en | zh（也可用 MTOP_LANG / l）
 mtop --json --fields procs.pid,procs.rss_kb
 mtop --diff a.json b.json --min-delta 50M
 ```
@@ -75,6 +77,8 @@ mtop --diff a.json b.json --min-delta 50M
 | `g`/`G` | 顶部 / 底部 |
 | `s` / `r` | 切换排序键（apps 视图切换面积指标）/ 反向 |
 | `t` | 循环配色主题（7 套内置配色） |
+| `?` | 当前页面帮助（顶部状态、列、标记、按键） |
+| `l` | 切换界面语言（English / 中文） |
 | `f` | 过滤（进程名、PID、cgroup 路径、映射名） |
 | `Enter` | 详情 / 展开映射 / 下钻 cgroup 或 app |
 | `Esc` | 清除过滤、退出详情或下钻 |

@@ -2,6 +2,7 @@ use std::process::ExitCode;
 use std::sync::mpsc;
 
 use mtop::app::App;
+use mtop::i18n::Lang;
 use mtop::sampler;
 use mtop::theme::{ColorSupport, Theme};
 
@@ -9,7 +10,7 @@ const HELP: &str = "\
 mtop - Linux memory analysis TUI
 
 USAGE:
-    mtop [--pid PID] [--theme NAME]
+    mtop [--pid PID] [--theme NAME] [--lang auto|en|zh]
     mtop --json [--pid PID] [--fields procs.pid,procs.rss_kb]
     mtop --diff A.json B.json [--min-delta 50M] [--top 20]
 
@@ -20,6 +21,7 @@ OPTIONS:
                       (also MTOP_THEME; `t` switches at runtime)
         --color MODE  colour depth: auto, truecolor, 256, 16
                       (auto follows COLORTERM/TERM)
+        --lang LANG   UI language: auto, en, zh (also MTOP_LANG; `l` toggles)
         --json      print one snapshot as JSON and exit (diffable; no TUI)
         --fields P  comma-separated dotted paths to keep, e.g.
                     procs.pid,procs.comm,procs.pss.pss_kb (schema/at always kept)
@@ -32,7 +34,8 @@ OPTIONS:
 KEYS:
     j/k, ↑/↓        move selection          g/G     top / bottom
     s               cycle sort key          r       reverse order
-    t               cycle colour theme      Tab     switch view
+    t               cycle colour theme      l       switch language
+    ?               page help               Tab     switch view
     f               filter process name/pid Enter   per-process VMA breakdown
     f (detail)      filter mapping names    Enter   expand a mapping into VMAs
     z / Z (detail)  collapse / expand all   Esc     clear filter / back
@@ -43,6 +46,7 @@ fn main() -> ExitCode {
     let mut start_pid = None;
     let mut theme: Option<Theme> = None;
     let mut support: Option<ColorSupport> = None;
+    let mut lang: Option<Lang> = None;
     let mut json_out = false;
     let mut fields: Vec<String> = Vec::new();
     let mut diff: Option<(String, String)> = None;
@@ -76,6 +80,16 @@ fn main() -> ExitCode {
                     },
                     None => {
                         eprintln!("mtop: --theme needs a name ({})", Theme::NAMES);
+                        return ExitCode::from(2);
+                    }
+                }
+            }
+            "--lang" => {
+                i += 1;
+                match args.get(i).and_then(|name| Lang::parse(name)) {
+                    Some(mode) => lang = Some(mode),
+                    None => {
+                        eprintln!("mtop: --lang needs one of {}", Lang::NAMES);
                         return ExitCode::from(2);
                     }
                 }
@@ -218,13 +232,31 @@ fn main() -> ExitCode {
     });
 
     let support = support.unwrap_or_else(ColorSupport::detect);
+    let lang = lang.unwrap_or_else(|| match std::env::var("MTOP_LANG") {
+        Ok(value) => Lang::parse(&value).unwrap_or_else(|| {
+            eprintln!(
+                "mtop: ignoring MTOP_LANG={value:?}; choose one of {}",
+                Lang::NAMES
+            );
+            Lang::detect()
+        }),
+        Err(_) => Lang::detect(),
+    });
 
     let (cmd_tx, cmd_rx) = mpsc::channel();
     let (snap_tx, snap_rx) = mpsc::channel();
     sampler::spawn(cmd_rx, snap_tx);
 
     let mut terminal = ratatui::init();
-    let result = App::run(&mut terminal, start_pid, theme, support, cmd_tx, snap_rx);
+    let result = App::run(
+        &mut terminal,
+        start_pid,
+        theme,
+        support,
+        lang,
+        cmd_tx,
+        snap_rx,
+    );
     ratatui::restore();
     match result {
         Ok(()) => ExitCode::SUCCESS,
