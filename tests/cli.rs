@@ -89,3 +89,16 @@ fn unknown_arguments_exit_with_usage_error() {
     assert_eq!(out.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&out.stderr).contains("unknown argument"));
 }
+
+#[test]
+fn history_requires_a_bounded_positive_integer() {
+    for value in ["0", "-1", "1.5", "3601", "999999999999999999999999", "nope"] {
+        let out = run(&["--history", value]);
+        assert_eq!(out.status.code(), Some(2), "{value}");
+        assert!(String::from_utf8_lossy(&out.stderr).contains("--history"));
+    }
+    assert_eq!(run(&["--history"]).status.code(), Some(2));
+    for value in ["1", "600", "3600"] {
+        assert!(run(&["--history", value, "--version"]).status.success());
+    }
+}

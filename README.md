@@ -30,6 +30,7 @@ RSS sums to roughly **2.2×** the real number system-wide (2.4× for Chrome). me
 - **VMA detail** — aggregate by mapping, then expand one mapping into its individual VMAs (address range, perms, PSS/USS/anon/swap/size).
 - **cgroup v2 view** — `memory.current` / `memory.stat` / `memory.max` / `memory.events`, PSI (`some`/`full`), OOM deltas, and drill-down into a subtree's processes.
 - **App treemap** — processes grouped into applications (systemd `app-*.scope` → exe → comm), area ∝ PSS, long tail folded into `others`.
+- **Shared trend window** — process, app, cgroup PSI and OOM histories use the same configurable time axis.
 - **Scriptable** — `--json` (with `--fields` projection), `--diff` (with `--min-delta` / `--top`), stable pid ordering for diffing.
 - **Mouse** — click a table row or treemap tile to select, click it again to open/expand/drill, wheel to scroll, and click the footer buttons (help, theme, language, view, sort, filter, enter, back, quit).
 - **Bilingual help** — `?` opens page-specific help for processes, cgroups, apps, VMA detail and drill-down; `--lang auto|en|zh`, `METOP_LANG`, or `l` switches Chinese/English.
@@ -72,6 +73,7 @@ metop --theme dracula       # default | btop | dracula | gruvbox-dark |
                            # kanagawa-wave | light | ansi16 (or METOP_THEME)
 metop --color 256           # auto | truecolor | 256 | 16
 metop --lang zh             # auto | en | zh (or METOP_LANG / l)
+metop --history 600         # trend window in seconds (1–3600; default 120)
 metop --json --fields procs.pid,procs.rss_kb
 metop --diff a.json b.json --min-delta 50M
 ```
@@ -123,6 +125,8 @@ Values are hierarchical: a parent already includes its children, so the list sor
 
 Area is PSS by default; `s` switches to USS (private only) or RSS (which overcounts shared pages, and says so in the title). Tiles use the active theme's bright palette, with dark labels; `Enter` drills into that app's processes.
 
+All trend views use the same elapsed-time window (`--history`, 120 seconds by default). Process and app samples arrive roughly once a second; cgroup PSI and OOM use the slower cgroup scans. Empty graph columns mean no measurement, not zero. When multiple measurements share a column, the latest value is shown; OOM increments are summed.
+
 ## Scripting
 
 ```sh
@@ -143,14 +147,13 @@ metop --diff a.json b.json --min-delta 50M
 ## Known issues
 
 - **Counts are partial without privileges.** Non-root runs only cover your own user's processes; kernel threads never have a PSS and are excluded from coverage denominators.
-- **Two history windows.** Process/apps keep 120 samples at 1 Hz (2 min); cgroup/PSI keep 120 samples at the 5 s cadence (10 min). Comparing the two trends side by side is misleading.
+- **Selection can move when sorted rows change.** Filter by PID with `f` to keep a process selected while its memory changes.
 - **App grouping falls back to the executable.** Without a systemd `app-*.scope`, two Chromium installs merge into one tile; `others (N)` is synthetic and cannot be drilled into.
 - **cgroup v1 is unsupported** — the view states why instead of showing zeros.
 - **Sampling perturbs the target.** Reading `smaps` walks page tables under the mmap lock, so walks are budgeted (150 ms/tick) and the detail view is on-demand.
 
 ## TODO
 
-- Configurable history window (`--history 600`), so all views share one time axis.
 - Include app groups in `--json`.
 - Optional: KSM / hugepage / pagemap metadata per VMA (via `wora-observability-linux-mm`).
 - Optional: per-view metric defaults and a config file.
@@ -159,7 +162,7 @@ metop --diff a.json b.json --min-delta 50M
 
 ```sh
 cargo build --release
-cargo test --release     # 69 tests
+cargo test --release
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 ```

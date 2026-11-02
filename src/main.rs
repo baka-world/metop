@@ -12,7 +12,7 @@ const HELP: &str = "\
 metop - Linux memory analysis TUI
 
 USAGE:
-    metop [--pid PID] [--theme NAME] [--lang auto|en|zh]
+    metop [--pid PID] [--theme NAME] [--lang auto|en|zh] [--history SECONDS]
     metop --json [--pid PID] [--fields procs.pid,procs.rss_kb]
     metop --diff A.json B.json [--min-delta 50M] [--top 20]
 
@@ -24,6 +24,7 @@ OPTIONS:
         --color MODE  colour depth: auto, truecolor, 256, 16
                       (auto follows COLORTERM/TERM)
         --lang LANG   UI language: auto, en, zh (also METOP_LANG; `l` toggles)
+        --history SECONDS  shared trend window, 1-3600 seconds (default 120)
         --json      print one snapshot as JSON and exit (diffable; no TUI)
         --fields P  comma-separated dotted paths to keep, e.g.
                     procs.pid,procs.comm,procs.pss.pss_kb (schema/at always kept)
@@ -53,6 +54,7 @@ fn main() -> ExitCode {
     let mut fields: Vec<String> = Vec::new();
     let mut diff: Option<(String, String)> = None;
     let mut diff_opts = metop::diff::Opts::default();
+    let mut history_seconds = metop::app::DEFAULT_HISTORY;
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut i = 0;
     while i < args.len() {
@@ -63,6 +65,19 @@ fn main() -> ExitCode {
                     Some(pid) => start_pid = Some(pid),
                     None => {
                         eprintln!("metop: --pid needs a numeric pid");
+                        return ExitCode::from(2);
+                    }
+                }
+            }
+            "--history" => {
+                i += 1;
+                match args.get(i).and_then(|s| s.parse::<u64>().ok()) {
+                    Some(n) if (1..=metop::app::MAX_HISTORY).contains(&n) => history_seconds = n,
+                    _ => {
+                        eprintln!(
+                            "metop: --history needs an integer from 1 to {}",
+                            metop::app::MAX_HISTORY
+                        );
                         return ExitCode::from(2);
                     }
                 }
@@ -249,17 +264,13 @@ fn main() -> ExitCode {
     let (snap_tx, snap_rx) = mpsc::channel();
     sampler::spawn(cmd_rx, snap_tx);
 
+    let mut app = App::with_history(start_pid, history_seconds);
+    app.support = support;
+    app.theme = theme.rendered(support);
+    app.lang = lang;
     let mut terminal = ratatui::init();
     let _ = execute!(std::io::stdout(), EnableMouseCapture);
-    let result = App::run(
-        &mut terminal,
-        start_pid,
-        theme,
-        support,
-        lang,
-        cmd_tx,
-        snap_rx,
-    );
+    let result = app.run(&mut terminal, cmd_tx, snap_rx);
     let _ = execute!(std::io::stdout(), DisableMouseCapture);
     ratatui::restore();
     match result {

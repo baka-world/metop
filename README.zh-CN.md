@@ -30,6 +30,7 @@ RSS 会把每个共享页在每个进程里各算一遍，多进程应用因此�
 - **VMA 详情**：按映射聚合，再展开成逐 VMA（地址区间、权限、PSS/USS/anon/swap/size）。
 - **cgroup v2 视图**：`memory.current` / `memory.stat` / `memory.max` / `memory.events`、PSI（`some`/`full`）、OOM 增量，并能下钻到子树里的进程。
 - **apps treemap**：按应用聚合（systemd `app-*.scope` → exe → comm），面积 ∝ PSS，长尾折叠为 `others`。
+- **统一趋势窗口**：进程、应用、cgroup PSI 和 OOM 历史共用可配置的时间轴。
 - **可脚本化**：`--json`（`--fields` 点号投影）、`--diff`（`--min-delta` / `--top`），快照按 PID 稳定排序、可直接 diff。
 - **鼠标**：点击表格行或 treemap 图块选中，再点一次打开/展开/下钻；滚轮滚动；footer 按钮（帮助、主题、语言、视图、排序、过滤、进入、返回、退出）均可点击。
 - **中英文帮助**：`?` 打开当前页面的说明（进程、cgroup、应用、VMA 详情、下钻）；`--lang auto|en|zh`、`METOP_LANG` 或运行时 `l` 切换语言。
@@ -72,6 +73,7 @@ metop --theme dracula       # default | btop | dracula | gruvbox-dark |
                            # kanagawa-wave | light | ansi16（也可用 METOP_THEME）
 metop --color 256           # auto | truecolor | 256 | 16
 metop --lang zh             # auto | en | zh（也可用 METOP_LANG / l）
+metop --history 600         # 趋势窗口秒数（1–3600，默认 120）
 metop --json --fields procs.pid,procs.rss_kb
 metop --diff a.json b.json --min-delta 50M
 ```
@@ -123,6 +125,8 @@ metop --diff a.json b.json --min-delta 50M
 
 面积默认是 PSS；`s` 切到 USS（只看私有）或 RSS（重复计算共享页，标题会明确写出）。图块使用当前主题的亮色配深色文字；`Enter` 下钻到该应用的进程。
 
+所有趋势视图共用同一段经过时间（`--history`，默认 120 秒）。进程和应用约每秒采样一次；cgroup PSI 和 OOM 使用较慢的 cgroup 扫描。图中空列表示没有采样，不表示数值为零。同一列有多个采样时显示最新值；OOM 增量则求和。
+
 ## 脚本化
 
 ```sh
@@ -143,14 +147,13 @@ metop --diff a.json b.json --min-delta 50M
 ## 已知问题
 
 - **没有权限时数据不全**：非 root 只覆盖本用户进程；内核线程永远没有 PSS，已从覆盖率分母中排除。
-- **两条历史时间轴**：进程/apps 是 1 Hz × 120 点（2 分钟），cgroup/PSI 是 5 s × 120 点（10 分钟），并排比较两处趋势会误导。
+- **排序变化时选中进程可能改变**：用 `f` 按 PID 过滤，可在内存变化时固定观察目标。
 - **应用分组会回退到可执行文件**：没有 systemd `app-*.scope` 时，两个 Chromium 安装会合并成一块；`others (N)` 是合成块，不可下钻。
 - **不支持 cgroup v1**：视图会说明原因，而不是显示 0。
 - **采样会扰动被测对象**：读 `smaps` 要在 mmap 锁下走页表，所以有 150 ms/tick 预算，详情按需读取。
 
 ## TODO
 
-- 历史窗口可配置（`--history 600`），让所有视图共用一条时间轴。
 - `--json` 输出 apps 分组。
 - 可选：逐 VMA 的 KSM / hugepage / pagemap 元数据（`wora-observability-linux-mm`）。
 - 可选：按视图设置默认指标、配置文件。
@@ -159,7 +162,7 @@ metop --diff a.json b.json --min-delta 50M
 
 ```sh
 cargo build --release
-cargo test --release     # 69 个测试
+cargo test --release
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 ```

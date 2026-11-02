@@ -42,7 +42,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | F3 | 排序：RSS/PSS/USS/Δ/PSS÷RSS/PID/COMM，可反向 | `sort_by_pss_reorders...`、`keyboard_navigation_is_clamped` |
 | F4 | 过滤：按进程名子串或 PID 前缀 | `filter_matches_comm_and_pid` |
 | F5 | 详情：按映射名聚合 PSS/USS/虚拟大小/VMA 数 | `detail_view_shows_grouped_vmas` + 实机端到端（2292 VMAs → 286 组） |
-| F6 | 焦点进程 RSS 趋势 sparkline（120 点） | 实机截图；数据源为 UI 侧环形缓冲 |
+| F6 | 焦点进程 RSS 趋势，默认显示最近 120 秒 | `long_history_draws_old_and_new_measurements_in_the_header`；实机分配/释放内存 |
 | F7 | 诚实表头：内存用量取自 `/proc/meminfo`；另显示 sweep/pss 耗时、PSS 覆盖率、样本年龄 | 实机帧：`coverage 205/205 = 5.85G 237 n/a` |
 | F8 | 权限失败时显示原因，不显示空面板 | `detail_error` → "vm mappings unavailable / /proc/N/smaps: …" |
 | F9 | `--pid PID` 启动即选中 | 实机：`--pid 579585` → 首行 ▸ chrome |
@@ -61,14 +61,15 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | F22 | PSI：表头显示系统 `some/full avg10`，cgroup 视图有 `PSI10` 列并按 5%/20% 上色，右上角画选中项走势（固定 0–100% 刻度） | `pressure_parses_some_and_full`、`cgroup_psi_history_is_recorded_and_plotted`、渲染断言 `psi 1.5/0.2%` 与 `12.5%` |
 | F23 | `--json` 输出 `pressure{some10,full10}` 与每个 cgroup 的 `psi_some10/psi_full10` | `tests/json.rs` |
 | F24 | `--json --fields a.b,c` 点号路径投影（数组按记录投影、null 段保留、`schema`/`at_unix_ms` 恒在、未知路径退出 2） | `tests/json.rs` + 4 个投影单测 |
-| F25 | OOM 时间序列：每个扫描点采样 `oom_recent`，120 点窗口，下钻页用文本 sparkline 呈现 | `text_spark_renders_a_normalised_series`、`cgroup_psi_history_is_recorded_and_plotted`、实机 `oom ▁▁▁▁ 0 total` |
+| F25 | OOM 时间序列：每个扫描点记录一次 `oom_recent`，使用共享时间窗口 | `histories_share_elapsed_window_and_only_scans_record_cgroup_values`、`timed_spark_covers_window_and_sums_events` |
 | F26 | apps 视图：面积 ∝ 应用内存，分组按 cgroup app scope → exe → comm，长尾折叠为 `others` | `apps.rs` 单测（scope 解析/合并/折叠）、`apps_view_groups_processes_and_drills_into_the_process_table` |
 | F27 | apps 视图选中并用 `Enter` 下钻到该应用的进程（`Esc` 清除过滤） | 同上 + `selected_row_is_tinted...` 同源的渲染测试 |
 | F28 | treemap 布局不变量：在界内、互不重叠、面积成比例 | `treemap_tiles_stay_inside_and_do_not_overlap`、`treemap_area_is_proportional_within_a_few_percent` |
-| F29 | apps 视图右上角显示选中应用的历史（120 点），按指标分别存储；RSS 模式在标题标注"overcounts shared" | `apps_history_tracks_each_metric_separately`、实机 `▅▇▇█…` |
+| F29 | apps 视图显示选中应用的历史，按指标分别存储；RSS 模式在标题标注"overcounts shared" | `apps_history_tracks_each_metric_separately` |
 | F30 | 七套内置配色：`default`、`btop`、`dracula`、`gruvbox-dark`、`kanagawa-wave`、`light`、`ansi16`；后四套的颜色取自 btop 自带主题文件；`--theme`、`METOP_THEME`、运行时 `t` 循环；不引入配置文件；默认主题的 chrome 配色（高亮/标题/严重度/treemap）与旧版逐色一致，PSS 构成使用主题色板且四类颜色互异；按终端能力自动以真彩/256/16 色渲染（btop 的 6×6×6 + 灰阶量化规则），`--color auto\|truecolor\|256\|16` 可覆盖 | `theme.rs` 单测（含量化）、`theme_key_cycles_...`、`ansi256_rendering_uses_indexed_colours_only`、`unknown_colour_mode_is_a_usage_error` |
 | F32 | 鼠标支持：启用/退出时关闭鼠标捕获；点击表格行/treemap 图块选中，再点一次执行 Enter（详情/展开/下钻）；滚轮滚动；footer 为可点击命令栏，帮助层可滚轮滚动、点击外部关闭 | `mouse_selects_rows_scrolls_and_clicks_footer_buttons`、`mouse_click_selects_a_treemap_tile`、实机 pty 点击 `[? Help]` |
 | F31 | 每个视图（进程 / cgroup / apps / VMA 详情 / cgroup 下钻）有 `?` 帮助面板，解释顶部状态、列含义、标记和按键；支持中英文（`--lang auto\|en\|zh`、`METOP_LANG`、运行时 `l`），不引入配置文件 | `i18n.rs` 单测、`help_overlay_is_per_page_and_bilingual`、`unknown_language_is_a_usage_error` |
+| F33 | `--history SECONDS` 设置进程/apps/cgroup PSI/OOM 共用的时间窗口（默认 120，范围 1–3600 秒）；缺失采样留空 | `histories_share_elapsed_window_and_only_scans_record_cgroup_values`、`long_history_draws_old_and_new_measurements_in_the_header`、`history_requires_a_bounded_positive_integer` |
 
 ## 5. 数据来源与精度
 
@@ -146,8 +147,8 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 
 | 项 | 状态 |
 |---|---|
-| 功能需求 F1–F23 | 全部实现，逐项有测试或实机抓帧 |
-| 自动化测试 / clippy | 99 tests，0 warning |
+| 功能需求 F1–F33 | 全部实现，逐项有测试或实机抓帧 |
+| 自动化测试 / clippy | `cargo test --release` 通过；clippy 无 warning |
 | 单文件分发 | `cargo build --release` → 1.4 MB，无运行时依赖 |
 | LICENSE | MIT（与 `Cargo.toml` 一致） |
 | `--version` / `--help` | 已提供，`tests/cli.rs` 覆盖 |
@@ -169,8 +170,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 
 ### 未做（都是可选增强，不是缺口）
 
-- 历史窗口可配置（现在进程/apps 是 1 Hz × 120 点 = 2 分钟，cgroup/PSI 是 5 s × 120 点 = 10 分钟，两条时间轴不一致）。
-- 历史窗口可配置（见上）。
 - `--json` 输出 apps 分组结果。
-- `--json` 输出 apps 分组结果（当前只有 procs/cgroups）。
+- 逐 VMA 的 KSM / hugepage / pagemap 元数据。
+- 按视图设置默认指标、配置文件。
 

@@ -214,11 +214,11 @@ impl T {
         }
     }
 
-    pub fn oom_line(&self, total: u64, window: u64, scans: usize) -> String {
+    pub fn oom_line(&self, total: u64, window: u64, seconds: u64) -> String {
         if self.is_zh() {
-            format!("  {total} 累计 · 最近 {scans} 次扫描 +{window}")
+            format!("  {total} 累计 · 最近 {seconds} 秒 +{window}")
         } else {
-            format!("  {total} total · +{window} in last {scans} scans")
+            format!("  {total} total · +{window} in last {seconds}s")
         }
     }
 
@@ -399,7 +399,7 @@ const APPS_EN: Doc = Doc {
                 "Area is the selected metric: PSS by default; s cycles PSS -> USS -> RSS.",
                 "RSS overcounts shared pages; the title says so.",
                 "Groups: app-*.scope -> exe -> comm; the long tail is folded into others (N).",
-                "Np is the process count in a group. The right panel is a 120-sample history.",
+                "Np is the process count. The right panel shows the configured time window.",
             ],
         },
         Section {
@@ -423,7 +423,7 @@ const APPS_ZH: Doc = Doc {
                 "面积默认是 PSS；按 s 依次切换 PSS -> USS -> RSS。",
                 "RSS 会把共享页重复计算，标题会标注。",
                 "分组：app-*.scope -> exe -> comm；长尾折叠为 others (N)。",
-                "Np 是该组的进程数；右侧面板是 120 点历史。",
+                "Np 是该组的进程数；右侧面板显示配置的时间窗口。",
             ],
         },
         Section {

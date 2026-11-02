@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::{HashMap, VecDeque};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{
@@ -18,7 +18,34 @@ use crate::procfs::{Vma, VmaGroup};
 use crate::theme::{ColorSupport, Theme};
 use crate::ui;
 
-pub const HISTORY: usize = 120;
+pub const DEFAULT_HISTORY: u64 = 120;
+pub const MAX_HISTORY: u64 = 3600;
+
+#[derive(Clone, Copy, Debug)]
+pub struct HistorySample<T> {
+    pub at: Instant,
+    pub value: T,
+}
+
+fn expire<T>(history: &mut VecDeque<HistorySample<T>>, now: Instant, window: Duration) {
+    while history
+        .front()
+        .is_some_and(|s| now.saturating_duration_since(s.at) > window)
+    {
+        history.pop_front();
+    }
+}
+
+fn record<T>(history: &mut VecDeque<HistorySample<T>>, at: Instant, origin: Instant, value: T) {
+    let slot = at.saturating_duration_since(origin).as_secs();
+    if history
+        .back()
+        .is_some_and(|s| s.at.saturating_duration_since(origin).as_secs() == slot)
+    {
+        history.pop_back();
+    }
+    history.push_back(HistorySample { at, value });
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum View {
@@ -172,7 +199,7 @@ pub struct App {
     pub app_groups: Vec<AppGroup>,
     /// Metric history per app name (only the collapsed groups are tracked:
     /// ~20-40 entries, not all 330).
-    pub app_history: HashMap<String, VecDeque<AppSample>>,
+    pub app_history: HashMap<String, VecDeque<HistorySample<AppSample>>>,
     pub app_sel: usize,
     pub app_metric: AppMetric,
     pub app_state: TableState,
@@ -201,13 +228,14 @@ pub struct App {
     pub cgroup_state: TableState,
     pub drill_state: TableState,
     pub detail_state: TableState,
-    pub history: HashMap<u32, VecDeque<u64>>,
-    /// PSI `some avg10` over time per cgroup, stored as percent*10 for the
-    /// sparkline (u64) with a fixed 0-1000 scale.
-    pub cgroup_history: HashMap<String, VecDeque<u64>>,
-    /// OOM kills per scan per cgroup (5 s cadence, 120 samples = 10 min).
-    pub oom_history: HashMap<String, VecDeque<u64>>,
-    last_scan_seq: u64,
+    pub history: HashMap<u32, VecDeque<HistorySample<u64>>>,
+    /// PSI some avg10, percent*10, recorded only when a new scan arrives.
+    pub cgroup_history: HashMap<String, VecDeque<HistorySample<u64>>>,
+    /// OOM increments, recorded once per new scan.
+    pub oom_history: HashMap<String, VecDeque<HistorySample<u64>>>,
+    pub history_seconds: u64,
+    history_origin: Option<Instant>,
+    last_scan_seq: Option<u64>,
     last_sent: Option<(Option<u32>, bool)>,
     started: bool,
     pending_focus: Option<u32>,
@@ -216,6 +244,11 @@ pub struct App {
 
 impl App {
     pub fn new(start_pid: Option<u32>) -> Self {
+        Self::with_history(start_pid, DEFAULT_HISTORY)
+    }
+
+    pub fn with_history(start_pid: Option<u32>, history_seconds: u64) -> Self {
+        assert!((1..=MAX_HISTORY).contains(&history_seconds));
         let mut app = App {
             view: View::Procs,
             theme: Theme::DEFAULT,
@@ -253,7 +286,9 @@ impl App {
             history: HashMap::new(),
             cgroup_history: HashMap::new(),
             oom_history: HashMap::new(),
-            last_scan_seq: 0,
+            history_seconds,
+            history_origin: None,
+            last_scan_seq: None,
             last_sent: None,
             started: false,
             pending_focus: None,
@@ -362,22 +397,6 @@ impl App {
         rows
     }
 
-    /// Series for the selected metric of `name`, for the header sparkline.
-    pub fn app_series(&self, name: &str, metric: AppMetric) -> Vec<u64> {
-        self.app_history
-            .get(name)
-            .map(|h| {
-                h.iter()
-                    .map(|s| match metric {
-                        AppMetric::Pss => s.pss_kb,
-                        AppMetric::Uss => s.uss_kb,
-                        AppMetric::Rss => s.rss_kb,
-                    })
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
     pub fn visible_apps(&self) -> Vec<&AppGroup> {
         let needle = self.filter.to_lowercase();
         self.app_groups
@@ -428,14 +447,21 @@ impl App {
     }
 
     pub fn on_snapshot(&mut self, snap: Snapshot) {
+        let now = snap.at;
+        let origin = *self.history_origin.get_or_insert(now);
+        let window = Duration::from_secs(self.history_seconds);
+        for h in self.cgroup_history.values_mut() {
+            expire(h, now, window);
+        }
+        for h in self.oom_history.values_mut() {
+            expire(h, now, window);
+        }
         let mut seen: Vec<u32> = Vec::with_capacity(snap.rows.len());
         for row in &snap.rows {
             seen.push(row.pid);
             let h = self.history.entry(row.pid).or_default();
-            h.push_back(row.rss_kb);
-            while h.len() > HISTORY {
-                h.pop_front();
-            }
+            expire(h, now, window);
+            record(h, now, origin, row.rss_kb);
         }
         self.history.retain(|pid, _| seen.contains(pid));
         self.app_groups = crate::apps::collapse(
@@ -447,36 +473,38 @@ impl App {
         for g in &self.app_groups {
             app_seen.insert(g.name.as_str());
             let h = self.app_history.entry(g.name.clone()).or_default();
-            h.push_back(AppSample {
-                pss_kb: g.pss_kb,
-                uss_kb: g.uss_kb,
-                rss_kb: g.rss_kb,
-            });
-            while h.len() > HISTORY {
-                h.pop_front();
-            }
+            expire(h, now, window);
+            record(
+                h,
+                now,
+                origin,
+                AppSample {
+                    pss_kb: g.pss_kb,
+                    uss_kb: g.uss_kb,
+                    rss_kb: g.rss_kb,
+                },
+            );
         }
         self.app_history
             .retain(|name, _| app_seen.contains(name.as_str()));
 
-        // The cgroup list only changes on the 5 s scan; sampling it every tick
-        // would record the same value five times and shrink the window.
-        if snap.scan_seq != self.last_scan_seq && !snap.cgroups.is_empty() {
-            self.last_scan_seq = snap.scan_seq;
+        // A repeated snapshot carries the previous scan, not a new measurement.
+        if Some(snap.scan_seq) != self.last_scan_seq {
+            self.last_scan_seq = Some(snap.scan_seq);
             let mut cg_seen: std::collections::HashSet<&str> =
                 std::collections::HashSet::with_capacity(snap.cgroups.len());
             for cg in &snap.cgroups {
                 cg_seen.insert(cg.path.as_str());
                 let h = self.cgroup_history.entry(cg.path.clone()).or_default();
-                h.push_back((cg.psi_some10.max(0.0) * 10.0).round() as u64);
-                while h.len() > HISTORY {
-                    h.pop_front();
-                }
+                h.push_back(HistorySample {
+                    at: now,
+                    value: (cg.psi_some10.max(0.0) * 10.0).round() as u64,
+                });
                 let o = self.oom_history.entry(cg.path.clone()).or_default();
-                o.push_back(cg.oom_recent);
-                while o.len() > HISTORY {
-                    o.pop_front();
-                }
+                o.push_back(HistorySample {
+                    at: now,
+                    value: cg.oom_recent,
+                });
             }
             self.cgroup_history
                 .retain(|path, _| cg_seen.contains(path.as_str()));
@@ -930,41 +958,34 @@ impl App {
     }
 
     pub fn run(
+        mut self,
         terminal: &mut DefaultTerminal,
-        start_pid: Option<u32>,
-        theme: Theme,
-        support: ColorSupport,
-        lang: Lang,
         tx: std::sync::mpsc::Sender<Focus>,
         rx: std::sync::mpsc::Receiver<Snapshot>,
     ) -> std::io::Result<()> {
-        let mut app = App::new(start_pid);
-        app.support = support;
-        app.theme = theme.rendered(support);
-        app.lang = lang;
         loop {
             let mut got = false;
             while let Ok(snap) = rx.try_recv() {
-                app.on_snapshot(snap);
+                self.on_snapshot(snap);
                 got = true;
             }
-            if got || app.started {
-                terminal.draw(|f| ui::draw(f, &mut app))?;
-                app.started = true;
+            if got || self.started {
+                terminal.draw(|f| ui::draw(f, &mut self))?;
+                self.started = true;
             }
-            if let Some(focus) = app.take_focus_update() {
+            if let Some(focus) = self.take_focus_update() {
                 let _ = tx.send(focus);
             }
             if event::poll(Duration::from_millis(250))? {
-                if app.handle_event(event::read()?) {
+                if self.handle_event(event::read()?) {
                     return Ok(());
                 }
                 while event::poll(Duration::ZERO)? {
-                    if app.handle_event(event::read()?) {
+                    if self.handle_event(event::read()?) {
                         return Ok(());
                     }
                 }
-                if let Some(focus) = app.take_focus_update() {
+                if let Some(focus) = self.take_focus_update() {
                     let _ = tx.send(focus);
                 }
             }

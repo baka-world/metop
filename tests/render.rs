@@ -669,6 +669,7 @@ fn cgroup_psi_history_is_recorded_and_plotted() {
     let mut first = snapshot();
     first.cgroups[0].psi_some10 = 3.0;
     let mut second = snapshot();
+    second.at = first.at + std::time::Duration::from_secs(5);
     second.scan_seq = 2;
     second.cgroups[0].psi_some10 = 7.5;
 
@@ -680,9 +681,9 @@ fn cgroup_psi_history_is_recorded_and_plotted() {
         .cgroup_history
         .get("/user.slice/user-1000.slice/session-2.scope")
         .expect("history for the cgroup");
-    assert_eq!(history.len(), 2, "one sample per snapshot");
-    assert_eq!(history[0], 30, "percent*10 for a 0-1000 scale");
-    assert_eq!(history[1], 75);
+    assert_eq!(history.len(), 2, "one sample per scan");
+    assert_eq!(history[0].value, 30, "percent*10 for a 0-1000 scale");
+    assert_eq!(history[1].value, 75);
 
     app.view = metop::app::View::Cgroups;
     let text = render(&mut app);
@@ -1209,28 +1210,124 @@ fn apps_view_falls_back_to_a_list_when_narrow() {
 
 #[test]
 fn apps_history_tracks_each_metric_separately() {
-    use metop::app::AppMetric;
-
     let mut app = App::new(None);
     let first = snapshot();
     app.on_snapshot(first.clone());
 
     let mut second = snapshot();
+    second.at = first.at + std::time::Duration::from_secs(1);
     second.rows[0].rss_kb = 900_000; // chrome's main process grew
     app.on_snapshot(second);
 
     // RSS moved; PSS did not (the fixture's PssInfo is unchanged).
+    let history = &app.app_history["chrome"];
     assert_eq!(
-        app.app_series("chrome", AppMetric::Rss),
+        history.iter().map(|s| s.value.rss_kb).collect::<Vec<_>>(),
         vec![600_000, 1_000_000]
     );
     assert_eq!(
-        app.app_series("chrome", AppMetric::Pss),
+        history.iter().map(|s| s.value.pss_kb).collect::<Vec<_>>(),
         vec![300_000, 300_000]
     );
     assert_eq!(
-        app.app_series("chrome", AppMetric::Uss),
+        history.iter().map(|s| s.value.uss_kb).collect::<Vec<_>>(),
         vec![250_000, 250_000]
     );
-    assert!(app.app_series("nope", AppMetric::Pss).is_empty());
+}
+
+#[test]
+fn histories_share_elapsed_window_and_only_scans_record_cgroup_values() {
+    use std::time::Duration;
+    let mut app = App::with_history(None, 10);
+    let mut first = snapshot();
+    let start = first.at;
+    let path = first.cgroups[0].path.clone();
+    first.scan_seq = 10;
+    first.cgroups[0].psi_some10 = 2.0;
+    first.cgroups[0].oom_recent = 2;
+    app.on_snapshot(first.clone());
+
+    // Urgent snapshots replace a same-second process/app measurement but
+    // must not replay the previous scan or its OOM increment.
+    let mut urgent = first.clone();
+    urgent.at = start + Duration::from_millis(500);
+    urgent.rows[0].rss_kb = 600_000;
+    urgent.cgroups[0].psi_some10 = 99.0;
+    app.on_snapshot(urgent);
+    assert_eq!(app.history[&100].len(), 1);
+    assert_eq!(app.history[&100][0].value, 600_000);
+    assert_eq!(app.app_history["chrome"].len(), 1);
+    assert_eq!(app.cgroup_history[&path].len(), 1);
+    assert_eq!(app.cgroup_history[&path][0].value, 20);
+    assert_eq!(app.oom_history[&path][0].value, 2);
+
+    let mut scan = first.clone();
+    scan.at = start + Duration::from_secs(5);
+    scan.scan_seq = 11;
+    scan.cgroups[0].psi_some10 = 7.5;
+    scan.cgroups[0].oom_recent = 3;
+    app.on_snapshot(scan.clone());
+    scan.at += Duration::from_secs(1);
+    app.on_snapshot(scan);
+    assert_eq!(app.history[&100].len(), 3);
+    assert_eq!(
+        app.cgroup_history[&path]
+            .iter()
+            .map(|s| s.value)
+            .collect::<Vec<_>>(),
+        vec![20, 75]
+    );
+    assert_eq!(
+        app.oom_history[&path].iter().map(|s| s.value).sum::<u64>(),
+        5
+    );
+
+    // Expiration is based on actual time, even without a new scan.
+    let mut gap = first.clone();
+    gap.scan_seq = 11;
+    gap.at = start + Duration::from_millis(10_001);
+    app.on_snapshot(gap.clone());
+    assert_eq!(app.cgroup_history[&path].len(), 1);
+    assert_eq!(
+        app.oom_history[&path].iter().map(|s| s.value).sum::<u64>(),
+        3
+    );
+    assert!(
+        app.history[&100]
+            .iter()
+            .all(|s| gap.at.duration_since(s.at) <= Duration::from_secs(10))
+    );
+    assert!(
+        app.app_history["chrome"]
+            .iter()
+            .all(|s| gap.at.duration_since(s.at) <= Duration::from_secs(10))
+    );
+
+    gap.at = start + Duration::from_millis(20_002);
+    app.on_snapshot(gap);
+    assert!(app.cgroup_history[&path].is_empty());
+    assert!(app.oom_history[&path].is_empty());
+    assert_eq!(app.history[&100].len(), 1);
+    assert_eq!(app.app_history["chrome"].len(), 1);
+}
+
+#[test]
+fn long_history_draws_old_and_new_measurements_in_the_header() {
+    use std::time::Duration;
+    let mut app = App::with_history(None, 600);
+    let mut first = snapshot();
+    let start = first.at;
+    first.rows[0].rss_kb = 1_000_000;
+    app.on_snapshot(first.clone());
+    let mut last = first;
+    last.at = start + Duration::from_secs(599);
+    last.rows[0].rss_kb = 500_000;
+    app.on_snapshot(last);
+    for width in [80, 120] {
+        let mut term = Terminal::new(TestBackend::new(width, 26)).unwrap();
+        term.draw(|f| metop::ui::draw(f, &mut app)).unwrap();
+        let buf = term.backend().buffer();
+        assert_eq!(buf[(width - 31, 1)].symbol(), "█");
+        assert_eq!(buf[(width - 2, 1)].symbol(), "▅");
+    }
 }

@@ -8,6 +8,11 @@ version (`0.MINOR.PATCH`).
 
 ## [Unreleased]
 
+### Added
+
+- A configurable shared trend window (`--history`, 1–3600 seconds; default
+  120) for process, app, cgroup PSI and OOM histories.
+
 ## [0.4.0] - 2026-11-01
 
 ### Changed

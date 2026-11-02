@@ -2,7 +2,7 @@ use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Sparkline, Table};
+use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table};
 
 use crate::app::{App, DetailRow, FooterAction, Hit, MouseTarget, View};
 use crate::cgroup::CgroupMem;
@@ -52,23 +52,45 @@ fn push_row_hits(
 
 const SPARK_LEVELS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
-/// Text sparkline: no widget needed, and it can be asserted as a string.
-pub fn text_spark(values: &[u64], width: usize) -> String {
-    if values.is_empty() || width == 0 {
+/// Place actual measurements on a shared elapsed-time axis. Empty columns are
+/// blank, not invented measurements; OOM columns sum the scans they contain.
+fn timed_spark(
+    samples: impl IntoIterator<Item = (std::time::Instant, u64)>,
+    now: std::time::Instant,
+    seconds: u64,
+    width: usize,
+    fixed_max: Option<u64>,
+    sum: bool,
+) -> String {
+    if width == 0 {
         return String::new();
     }
-    let start = values.len().saturating_sub(width);
-    let slice = &values[start..];
-    let max = slice.iter().copied().max().unwrap_or(0);
-    slice
-        .iter()
-        .map(|v| {
-            let idx = if max == 0 {
-                0
-            } else {
-                ((*v as f64 / max as f64) * 7.0).round() as usize
-            };
-            SPARK_LEVELS[idx.min(7)]
+    let window = std::time::Duration::from_secs(seconds).as_nanos();
+    let mut bins = vec![None::<u64>; width];
+    for (at, value) in samples {
+        let age = now.saturating_duration_since(at).as_nanos();
+        if age > window {
+            continue;
+        }
+        let index = ((window - age) * width as u128 / window).min(width as u128 - 1) as usize;
+        bins[index] = Some(if sum {
+            bins[index].unwrap_or(0).saturating_add(value)
+        } else {
+            value
+        });
+    }
+    let max = fixed_max.unwrap_or_else(|| bins.iter().flatten().copied().max().unwrap_or(0));
+    bins.into_iter()
+        .map(|value| match value {
+            None => ' ',
+            Some(v) => {
+                let idx = if max == 0 {
+                    0
+                } else {
+                    ((v as f64 / max as f64) * 7.0).round() as usize
+                };
+                SPARK_LEVELS[idx.min(7)]
+            }
         })
         .collect()
 }
@@ -250,64 +272,93 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
         cols[0],
     );
 
-    // RSS trend of the focused process.
-    let (label, data): (String, Vec<u64>) = match app.view {
+    // All views share the same elapsed-time interval; missing measurements stay blank.
+    let width = cols[1].width.saturating_sub(2) as usize;
+    let (label, data) = match app.view {
         View::Apps => match app.selected_app() {
             Some(g) => (
                 format!(
                     " {} {}",
-                    truncate(&g.name, 24),
-                    fmt_kb(app.app_metric.value(g))
+                    fmt_kb(app.app_metric.value(g)),
+                    truncate(&g.name, 24)
                 ),
-                app.app_series(&g.name, app.app_metric),
+                timed_spark(
+                    app.app_history.get(&g.name).into_iter().flatten().map(|s| {
+                        let value = match app.app_metric {
+                            crate::app::AppMetric::Pss => s.value.pss_kb,
+                            crate::app::AppMetric::Uss => s.value.uss_kb,
+                            crate::app::AppMetric::Rss => s.value.rss_kb,
+                        };
+                        (s.at, value)
+                    }),
+                    snap.at,
+                    app.history_seconds,
+                    width,
+                    None,
+                    false,
+                ),
             ),
-            None => (t.pick(" apps", " 应用").into(), Vec::new()),
+            None => (t.pick(" apps", " 应用").into(), String::new()),
         },
         View::Cgroups => match app.visible_cgroups().get(app.cgroup_sel) {
-            Some(cg) => {
-                let hist = app
-                    .cgroup_history
-                    .get(&cg.path)
-                    .map(|h| h.iter().copied().collect::<Vec<u64>>())
-                    .unwrap_or_default();
-                (
-                    format!(" {} psi {:.1}%", truncate_left(&cg.path, 16), cg.psi_some10),
-                    hist,
-                )
-            }
-            None => (t.pick(" cgroups", " cgroups").into(), Vec::new()),
+            Some(cg) => (
+                format!(
+                    " psi {:.1}% {}",
+                    cg.psi_some10,
+                    truncate_left(
+                        cg.path
+                            .rsplit('/')
+                            .find(|part| !part.is_empty())
+                            .unwrap_or("/"),
+                        15
+                    )
+                ),
+                timed_spark(
+                    app.cgroup_history
+                        .get(&cg.path)
+                        .into_iter()
+                        .flatten()
+                        .map(|s| (s.at, s.value)),
+                    snap.at,
+                    app.history_seconds,
+                    width,
+                    Some(1000),
+                    false,
+                ),
+            ),
+            None => (t.pick(" cgroups", " cgroups").into(), String::new()),
         },
         View::Procs => match app.selected_pid() {
             Some(pid) => {
-                let hist = app.history.get(&pid).cloned().unwrap_or_default();
-                let rss = hist.back().copied().unwrap_or(0);
-                let comm = app
-                    .snap
-                    .as_ref()
-                    .and_then(|s| s.rows.iter().find(|r| r.pid == pid))
-                    .map(|r| r.comm.clone())
-                    .unwrap_or_default();
+                let hist = app.history.get(&pid);
+                let rss = hist.and_then(|h| h.back()).map_or(0, |s| s.value);
+                let comm = snap
+                    .rows
+                    .iter()
+                    .find(|r| r.pid == pid)
+                    .map(|r| r.comm.as_str())
+                    .unwrap_or("");
                 (
-                    format!(" {} {} {}", pid, truncate(&comm, 12), fmt_kb(rss)),
-                    hist.into_iter().collect(),
+                    format!(" {} {} {}", pid, fmt_kb(rss), truncate(comm, 12)),
+                    timed_spark(
+                        hist.into_iter().flatten().map(|s| (s.at, s.value)),
+                        snap.at,
+                        app.history_seconds,
+                        width,
+                        None,
+                        false,
+                    ),
                 )
             }
-            None => (t.pick(" rss trend", " RSS 走势").into(), Vec::new()),
+            None => (t.pick(" rss trend", " RSS 走势").into(), String::new()),
         },
     };
-    // The cgroup sparkline has a fixed 0-100% scale (values are stored as
-    // percent*10), otherwise one 2% sample would fill the whole graph.
-    let max = if app.view == View::Cgroups {
-        1000
-    } else {
-        data.iter().copied().max().unwrap_or(1).max(1)
-    };
     f.render_widget(
-        Sparkline::default()
-            .data(data.as_slice())
-            .max(max)
-            .style(Style::new().fg(p.accent))
-            .block(Block::new().borders(Borders::ALL).title(label)),
+        Paragraph::new(data).style(Style::new().fg(p.accent)).block(
+            Block::new()
+                .borders(Borders::ALL)
+                .title(format!(" {}s{label}", app.history_seconds)),
+        ),
         cols[1],
     );
 }
@@ -811,17 +862,25 @@ fn cgroup_drill(f: &mut Frame, area: Rect, app: &mut App) {
             ),
         ),
     ]);
-    let oom_hist: Vec<u64> = app
-        .oom_history
-        .get(&path)
-        .map(|h| h.iter().copied().collect())
-        .unwrap_or_default();
-    let oom_window: u64 = oom_hist.iter().sum();
+    let oom_hist = app.oom_history.get(&path);
+    let oom_window: u64 = oom_hist.into_iter().flatten().map(|s| s.value).sum();
     let total_kills = cg.map(|c| c.oom_kills).unwrap_or(0);
+    let oom_summary = t.oom_line(total_kills, oom_window, app.history_seconds);
+    let width = (area.width as usize)
+        .saturating_sub(4 + oom_summary.chars().count())
+        .min(60);
+    let oom_spark = timed_spark(
+        oom_hist.into_iter().flatten().map(|s| (s.at, s.value)),
+        snap.at,
+        app.history_seconds,
+        width,
+        None,
+        true,
+    );
     let oom_line = Line::from(vec![
         Span::styled("oom ", Style::new().fg(p.dim)),
-        Span::styled(text_spark(&oom_hist, 60), Style::new().fg(p.crit)),
-        Span::raw(t.oom_line(total_kills, oom_window, oom_hist.len())),
+        Span::styled(oom_spark, Style::new().fg(p.crit)),
+        Span::raw(oom_summary),
     ]);
     f.render_widget(
         Paragraph::new(vec![summary, oom_line]).block(Block::new().borders(Borders::BOTTOM)),
@@ -1397,13 +1456,17 @@ mod tests {
     }
 
     #[test]
-    fn text_spark_renders_a_normalised_series() {
-        assert_eq!(super::text_spark(&[0, 0, 4, 0], 4), "▁▁█▁");
-        assert_eq!(super::text_spark(&[2, 3], 2), "▆█");
-        assert_eq!(super::text_spark(&[1, 1, 1], 3), "███");
-        assert!(super::text_spark(&[], 5).is_empty());
-        // Only the last `width` samples are drawn.
-        assert_eq!(super::text_spark(&[9, 0, 0, 1], 3), "▁▁█");
+    fn timed_spark_covers_window_and_sums_events() {
+        use std::time::{Duration, Instant};
+        let now = Instant::now();
+        let old = now - Duration::from_secs(599);
+        let samples = [(old, 4), (now - Duration::from_secs(1), 2), (now, 3)];
+        assert_eq!(super::timed_spark(samples, now, 600, 4, None, true), "▇  █");
+        assert_eq!(
+            super::timed_spark(samples, now, 600, 4, None, false),
+            "█  ▆"
+        );
+        assert_eq!(super::timed_spark(samples, now, 600, 0, None, false), "");
     }
 
     #[test]
