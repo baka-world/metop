@@ -11,8 +11,20 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  validate:
+    name: validate tag matches Cargo.toml
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The tag is the release's identity; refuse to build if Cargo.toml says
+      # something else, otherwise the tag and the packaged version diverge.
+      - name: Verify tag matches Cargo.toml
+        run: scripts/check-release-version.sh "$GITHUB_REF_NAME"
+
   build:
     name: build ${{ matrix.target }}
+    needs: validate
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
