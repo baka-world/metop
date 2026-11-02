@@ -153,7 +153,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | `--version` / `--help` | 已提供，`tests/cli.rs` 覆盖 |
 | root 路径 | 已实测：`procs=447 covered=264 denied=0 no_mm=183`（见 VERIFY-ROOT.md §6） |
 | CI | GitHub Actions：`fmt` / `clippy -D warnings` / 全量测试；打包任务构建 musl 二进制并校验 deb/rpm 的载荷与架构 |
-| 发布产物 | `v0.2.0` 已发布：amd64/arm64 的 `.deb` 与 `.rpm`、静态 musl `.tar.gz`、按目标生成的 `SHA256SUMS` |
+| 发布产物 | `v0.3.0` 已发布：amd64/arm64 的 `.deb` 与 `.rpm`、静态 musl `.tar.gz`、按目标生成的 `SHA256SUMS` |
 | 仓库 | https://github.com/baka-world/mtop（public，MIT） |
 
 ## 10. 里程碑
