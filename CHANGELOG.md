@@ -8,15 +8,12 @@ version (`0.MINOR.PATCH`).
 
 ## [Unreleased]
 
-### Changed
-
-- The crates.io package name is `metop` (the name `mtop` is taken); the
-  installed binary and Rust library remain `mtop`.
-
 ## [0.3.0] - 2026-11-01
 
 ### Added
 
+- Published on crates.io as `metop`; the installed binary and Rust library
+  remain `mtop`.
 - Mouse support: click table rows and treemap tiles (click again to open,
   expand or drill), wheel scrolling, and a clickable footer command bar.
 - Colour-depth rendering: themes stay truecolor on capable terminals and are
