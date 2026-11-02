@@ -74,8 +74,18 @@ pub struct Detail {
 }
 
 #[derive(Clone, Debug)]
+pub struct DetailError {
+    pub pid: u32,
+    pub error: String,
+}
+
+#[derive(Clone, Debug)]
 pub struct Snapshot {
     pub rows: Vec<ProcRow>,
+    /// False on the first sweep of a process: `rows[].delta_kb` is then 0 only
+    /// because no previous RSS sample exists, not because nothing changed.
+    /// JSON turns those zeros into `null`.
+    pub delta_available: bool,
     /// Only pids the sampler has spent page-table-walk budget on.
     pub pss: HashMap<u32, PssInfo>,
     pub mem: MemInfo,
@@ -91,7 +101,16 @@ pub struct Snapshot {
     pub pid_cgroup: Arc<HashMap<u32, String>>,
     /// pid -> executable path, same cadence.
     pub pid_exe: Arc<HashMap<u32, String>>,
+    /// pid -> argv, same cadence.
+    pub pid_cmdline: Arc<HashMap<u32, Vec<String>>>,
+    /// pid -> start time in Unix milliseconds, same cadence.
+    pub pid_start: Arc<HashMap<u32, u64>>,
+    /// One focused detail for the TUI and single-`--pid` JSON.
     pub detail: Option<Detail>,
+    /// More than one requested pid: JSON emits these as `details[]` while the
+    /// TUI keeps using the first `detail`.
+    pub details: Vec<Detail>,
+    pub detail_errors: Vec<DetailError>,
     /// Why the detail view is empty (usually EACCES on a process we don't own).
     pub detail_error: Option<String>,
     pub sweep_ms: f32,

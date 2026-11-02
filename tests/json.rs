@@ -25,7 +25,7 @@ fn run(args: &[&str]) -> serde_json::Value {
 #[test]
 fn snapshot_is_sorted_and_self_consistent() {
     let v = run(&["--json"]);
-    assert_eq!(v["schema"], "metop.snapshot.v1");
+    assert_eq!(v["schema"], "metop.snapshot.v2");
 
     let procs = v["procs"].as_array().expect("procs array");
     assert!(
@@ -51,6 +51,11 @@ fn snapshot_is_sorted_and_self_consistent() {
     for app in apps {
         let name = app["name"].as_str().unwrap();
         assert!(names.insert(name), "duplicate app {name}");
+        assert!(
+            ["scope", "exe", "comm", "mixed"].contains(&app["source"].as_str().unwrap()),
+            "bad app source: {}",
+            app["source"]
+        );
         let group_pids: Vec<u64> = app["pids"]
             .as_array()
             .unwrap()
@@ -100,6 +105,25 @@ fn snapshot_is_sorted_and_self_consistent() {
         "mem total looks like the wrong unit: {total} kB"
     );
 
+    let me = std::process::id() as u64;
+    let own = procs
+        .iter()
+        .find(|p| p["pid"].as_u64() == Some(me))
+        .expect("own process missing");
+    assert!(own["exe"].as_str().is_some(), "own exe missing");
+    assert!(
+        own["cmdline"].as_array().is_some_and(|a| !a.is_empty()),
+        "own cmdline missing"
+    );
+    assert!(
+        own["start_unix_ms"].as_u64().is_some(),
+        "own start time missing"
+    );
+    assert!(
+        own["cgroup"].is_string() || own["cgroup"].is_null(),
+        "cgroup must be a string or null"
+    );
+
     let readable: Vec<&serde_json::Value> = procs.iter().filter(|p| !p["pss"].is_null()).collect();
     assert!(!readable.is_empty(), "not one process had a readable PSS");
     for p in readable {
@@ -120,6 +144,36 @@ fn snapshot_is_sorted_and_self_consistent() {
             p["comm"]
         );
     }
+}
+
+#[test]
+fn one_shot_snapshot_has_no_numeric_delta() {
+    let v = run(&["--json"]);
+    for p in v["procs"].as_array().unwrap() {
+        assert!(
+            p["delta_kb"].is_null(),
+            "single-shot delta must be null, got {} for pid {}",
+            p["delta_kb"],
+            p["pid"]
+        );
+    }
+}
+
+#[test]
+fn projected_detail_keeps_the_error_context() {
+    let v = run(&["--json", "--pid", "9999999", "--fields", "detail"]);
+    assert!(v["detail"].is_null(), "unexpected detail for a missing pid");
+    let error = v["detail_error"]
+        .as_str()
+        .expect("detail_error missing from --fields detail");
+    assert!(
+        error.contains("9999999"),
+        "error does not name the pid: {error}"
+    );
+
+    // A projection that does not ask for detail must not grow an extra section.
+    let v = run(&["--json", "--fields", "procs.pid"]);
+    assert!(v.get("detail_error").is_none());
 }
 
 #[test]
@@ -145,6 +199,152 @@ fn detail_is_serialized_for_the_requested_pid() {
         sum.abs_diff(total) <= total / 5 + 4096,
         "group pss {sum} kB vs rollup {total} kB"
     );
+    let mut rss_sum = 0;
+    for g in groups {
+        let vsize = g["vsize_kb"].as_u64().unwrap();
+        let rss = g["rss_kb"].as_u64().unwrap();
+        let pss = g["pss_kb"].as_u64().unwrap();
+        assert!(g["vma_count"].as_u64().unwrap() > 0);
+        assert!(vsize >= rss, "virtual size below RSS: {g}");
+        assert!(rss >= pss, "group RSS below PSS: {g}");
+        rss_sum += rss;
+    }
+    let rss_total = d["rollup"]["rss_kb"].as_u64().unwrap();
+    assert!(
+        rss_sum.abs_diff(rss_total) <= rss_total / 5 + 4096,
+        "group rss {rss_sum} kB vs rollup {rss_total} kB"
+    );
+}
+
+#[test]
+fn vma_list_is_opt_in_and_totals_match_the_group() {
+    let me = std::process::id().to_string();
+    let without = run(&["--json", "--pid", &me, "--fields", "detail.groups"]);
+    assert!(
+        without["detail"]["groups"][0].get("vma_list").is_none(),
+        "vma_list must not be emitted by default"
+    );
+
+    let with = run(&[
+        "--json",
+        "--pid",
+        &me,
+        "--fields",
+        "detail.groups",
+        "--vmas",
+    ]);
+    let groups = with["detail"]["groups"].as_array().unwrap();
+    assert!(!groups.is_empty());
+    for g in groups {
+        let list = g["vma_list"].as_array().expect("vma_list missing");
+        assert_eq!(list.len() as u64, g["vma_count"].as_u64().unwrap());
+        let pss: u64 = list.iter().map(|v| v["pss_kb"].as_u64().unwrap()).sum();
+        assert_eq!(pss, g["pss_kb"].as_u64().unwrap());
+        for v in list {
+            assert!(v["end"].as_u64() > v["start"].as_u64());
+            assert!(v["vsize_kb"].as_u64().unwrap() >= v["rss_kb"].as_u64().unwrap());
+        }
+    }
+}
+
+#[test]
+fn fields_help_lists_leaf_paths_and_nested_errors_are_specific() {
+    let me = std::process::id().to_string();
+    let out = Command::new(env!("CARGO_BIN_EXE_metop"))
+        .args(["--json", "--pid", &me, "--fields", "help", "--vmas"])
+        .output()
+        .expect("spawn metop");
+    assert!(out.status.success());
+    let text = String::from_utf8_lossy(&out.stdout);
+    for needle in [
+        "procs.pid",
+        "procs.cgroup",
+        "apps.source",
+        "detail.groups.vma_count",
+        "detail.groups.vma_list",
+    ] {
+        assert!(text.contains(needle), "help missing {needle}:\n{text}");
+    }
+
+    let out = Command::new(env!("CARGO_BIN_EXE_metop"))
+        .args(["--json", "--fields", "procs.pss.nope"])
+        .output()
+        .expect("spawn metop");
+    assert_eq!(out.status.code(), Some(2));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("available under \"procs.pss\""),
+        "nested hint missing: {err}"
+    );
+    assert!(err.contains("pss_kb"), "children not listed: {err}");
+}
+
+#[test]
+fn multiple_pids_export_details_and_errors() {
+    let me = std::process::id();
+    let missing = 9_999_999u32;
+    let pids = format!("{me},{missing}");
+    let v = run(&["--json", "--pids", &pids, "--fields", "details", "--vmas"]);
+    let details = v["details"].as_array().expect("details array");
+    assert_eq!(details.len(), 1, "only the readable pid has a detail");
+    assert_eq!(details[0]["pid"].as_u64(), Some(me as u64));
+    assert!(
+        details[0]["groups"][0]["vma_list"].is_array(),
+        "--vmas missing from details"
+    );
+    let errors = v["detail_errors"].as_array().expect("detail_errors");
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0]["pid"].as_u64(), Some(missing as u64));
+
+    // Repeated --pid is equivalent to --pids.
+    let v = run(&[
+        "--json",
+        "--pid",
+        &me.to_string(),
+        "--pid",
+        &missing.to_string(),
+        "--fields",
+        "details.pid",
+    ]);
+    assert_eq!(v["details"][0]["pid"].as_u64(), Some(me as u64));
+    assert_eq!(v["detail_errors"][0]["pid"].as_u64(), Some(missing as u64));
+
+    // A single pid can still ask for the array form explicitly.
+    let v = run(&[
+        "--json",
+        "--pid",
+        &me.to_string(),
+        "--fields",
+        "details.pid",
+    ]);
+    assert_eq!(v["details"][0]["pid"].as_u64(), Some(me as u64));
+}
+
+#[test]
+fn process_only_projection_skips_detail() {
+    let me = std::process::id().to_string();
+    let v = run(&["--json", "--pid", me.as_str(), "--fields", "procs.pid"]);
+    assert!(
+        v.get("detail").is_none(),
+        "detail leaked through a projection"
+    );
+    assert!(
+        v.get("detail_error").is_none(),
+        "detail_error leaked through a projection"
+    );
+
+    let v = run(&["--json", "--pid", me.as_str(), "--no-detail"]);
+    assert!(
+        v["detail"].is_null(),
+        "--no-detail must not serialize a detail body"
+    );
+    assert!(
+        v["detail_error"].is_null(),
+        "--no-detail must not carry a detail error"
+    );
+
+    let v = run(&["--json", "--pid", &me, "--fields", "detail.pid"]);
+    assert_eq!(v["detail"]["pid"].as_u64(), Some(std::process::id() as u64));
 }
 
 #[test]
@@ -195,7 +395,7 @@ fn fields_projection_keeps_only_requested_paths() {
     let filtered = run(&["--json", "--fields", "procs.pid,procs.rss_kb"]);
 
     assert!(filtered.get("mem").is_none(), "unselected section leaked");
-    assert_eq!(filtered["schema"], "metop.snapshot.v1");
+    assert_eq!(filtered["schema"], "metop.snapshot.v2");
     assert!(filtered["at_unix_ms"].is_u64());
     let proc = &filtered["procs"][0];
     assert!(proc["pid"].is_u64());
@@ -212,7 +412,7 @@ fn fields_projection_keeps_only_requested_paths() {
 fn apps_fields_project_each_record() {
     let filtered = run(&["--json", "--fields", "apps.name,apps.pss_kb"]);
     assert_eq!(filtered.as_object().unwrap().len(), 3);
-    assert_eq!(filtered["schema"], "metop.snapshot.v1");
+    assert_eq!(filtered["schema"], "metop.snapshot.v2");
     assert!(filtered["at_unix_ms"].is_u64());
     let apps = filtered["apps"].as_array().unwrap();
     assert!(!apps.is_empty());
@@ -233,7 +433,7 @@ fn unknown_field_paths_are_rejected() {
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.contains("unknown field path"), "unhelpful error: {err}");
     assert!(
-        err.contains("top-level keys"),
+        err.contains("available under \"procs\""),
         "no hint about valid keys: {err}"
     );
 }

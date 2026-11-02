@@ -180,13 +180,103 @@ fn min_delta_filters_small_changes() {
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(
-        text.contains("min |ΔRSS| 100M"),
+        text.contains("min max(|ΔRSS|,|ΔPSS|) 100M"),
         "threshold not in header:\n{text}"
     );
     assert!(text.contains("alpha"), "big change filtered out:\n{text}");
     assert!(
         !text.contains("gamma"),
         "small change passed the filter:\n{text}"
+    );
+}
+
+const PSS_ONLY_A: &str = r#"{
+  "schema": "metop.snapshot.v1",
+  "at_unix_ms": 1000,
+  "procs": [
+    {"pid": 7, "comm": "pss-only", "rss_kb": 100000, "pss": {"pss_kb": 10000}},
+    {"pid": 8, "comm": "rss-grow", "rss_kb": 100000, "pss": {"pss_kb": 10000}}
+  ]
+}"#;
+
+const PSS_ONLY_B: &str = r#"{
+  "schema": "metop.snapshot.v1",
+  "at_unix_ms": 2000,
+  "procs": [
+    {"pid": 7, "comm": "pss-only", "rss_kb": 100000, "pss": {"pss_kb": 300000}},
+    {"pid": 8, "comm": "rss-grow", "rss_kb": 120000, "pss": {"pss_kb": 10000}}
+  ]
+}"#;
+
+#[test]
+fn pss_only_growth_survives_min_delta_and_top() {
+    let (a, b) = (
+        fixture("pss_a.json", PSS_ONLY_A),
+        fixture("pss_b.json", PSS_ONLY_B),
+    );
+    let out = Command::new(env!("CARGO_BIN_EXE_metop"))
+        .args([
+            "--diff",
+            a.to_str().unwrap(),
+            b.to_str().unwrap(),
+            "--min-delta",
+            "100M",
+        ])
+        .output()
+        .expect("spawn metop --diff");
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success());
+    let row = text
+        .lines()
+        .find(|l| l.contains("pss-only"))
+        .expect("PSS-only row hidden by min-delta");
+    assert!(row.contains("+283M"), "wrong PSS delta: {row}");
+    assert!(
+        !text.contains("rss-grow"),
+        "RSS-only row passed the 100M filter:\n{text}"
+    );
+
+    let out = Command::new(env!("CARGO_BIN_EXE_metop"))
+        .args([
+            "--diff",
+            a.to_str().unwrap(),
+            b.to_str().unwrap(),
+            "--top",
+            "1",
+        ])
+        .output()
+        .expect("spawn metop --diff");
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        text.contains("pss-only"),
+        "PSS-only row cut by --top:\n{text}"
+    );
+    assert!(!text.contains("rss-grow"), "wrong row kept:\n{text}");
+}
+
+#[test]
+fn min_delta_metric_rss_preserves_the_old_filter() {
+    let (a, b) = (
+        fixture("pss_rss_a.json", PSS_ONLY_A),
+        fixture("pss_rss_b.json", PSS_ONLY_B),
+    );
+    let out = Command::new(env!("CARGO_BIN_EXE_metop"))
+        .args([
+            "--diff",
+            a.to_str().unwrap(),
+            b.to_str().unwrap(),
+            "--min-delta",
+            "100M",
+            "--min-delta-metric",
+            "rss",
+        ])
+        .output()
+        .expect("spawn metop --diff");
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success());
+    assert!(
+        text.contains("no rows above min |ΔRSS| 100M"),
+        "RSS metric not applied:\n{text}"
     );
 }
 
@@ -216,7 +306,11 @@ fn top_limits_the_row_count() {
 #[test]
 fn bad_flags_are_rejected() {
     let (a, b) = (fixture("badf_a.json", A), fixture("badf_b.json", B));
-    for bad in [["--min-delta", "lots"], ["--top", "many"]] {
+    for bad in [
+        ["--min-delta", "lots"],
+        ["--min-delta-metric", "both"],
+        ["--top", "many"],
+    ] {
         let out = Command::new(env!("CARGO_BIN_EXE_metop"))
             .args(["--diff", a.to_str().unwrap(), b.to_str().unwrap()])
             .args(bad)

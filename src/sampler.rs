@@ -4,7 +4,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::model::{
-    Detail, Focus, PSS_DENIED_TTL, PSS_MAX_AGE, PSS_REFRESH_AFTER, ProcRow, PssInfo, Snapshot,
+    Detail, DetailError, Focus, PSS_DENIED_TTL, PSS_MAX_AGE, PSS_REFRESH_AFTER, ProcRow, PssInfo,
+    Snapshot,
 };
 use crate::procfs;
 
@@ -30,6 +31,8 @@ struct State {
     cgroups: Vec<crate::cgroup::CgroupMem>,
     pid_cgroup: std::sync::Arc<HashMap<u32, String>>,
     pid_exe: std::sync::Arc<HashMap<u32, String>>,
+    pid_cmdline: std::sync::Arc<HashMap<u32, Vec<String>>>,
+    pid_start: std::sync::Arc<HashMap<u32, u64>>,
     oom_prev: HashMap<String, u64>,
     scan_seq: u64,
 }
@@ -50,6 +53,8 @@ impl State {
             cgroups: crate::cgroup::scan(std::path::Path::new(crate::cgroup::ROOT)),
             pid_cgroup: std::sync::Arc::new(crate::cgroup::pid_map()),
             pid_exe: std::sync::Arc::new(procfs::pid_exe()),
+            pid_cmdline: std::sync::Arc::new(procfs::pid_cmdline()),
+            pid_start: std::sync::Arc::new(procfs::pid_start()),
             oom_prev: HashMap::new(),
             scan_seq: 1,
         }
@@ -65,6 +70,39 @@ pub fn snapshot_once(focus: Option<u32>, want_detail: bool) -> Snapshot {
     st.focus = focus;
     st.want_detail = want_detail;
     tick(&mut st, Duration::from_secs(2))
+}
+
+/// One snapshot plus full `smaps` details for several pids. The TUI keeps its
+/// single focused detail; JSON emits `details[]` from this path.
+pub fn snapshot_with_details(pids: &[u32]) -> Snapshot {
+    let mut snap = snapshot_once(None, false);
+    for &pid in pids {
+        let t = Instant::now();
+        match procfs::read_smaps(pid) {
+            Ok(report) => {
+                let rollup = snap
+                    .pss
+                    .get(&pid)
+                    .map(|p| p.rollup)
+                    .or_else(|| procfs::read_rollup(pid).ok())
+                    .unwrap_or_default();
+                snap.details.push(Detail {
+                    pid,
+                    comm: procfs::read_comm(pid).unwrap_or_default(),
+                    cmdline: procfs::read_cmdline(pid),
+                    report,
+                    rollup,
+                    parse_ms: t.elapsed().as_secs_f32() * 1000.0,
+                    at: Instant::now(),
+                });
+            }
+            Err(e) => snap.detail_errors.push(DetailError {
+                pid,
+                error: format!("/proc/{pid}/smaps: {e}"),
+            }),
+        }
+    }
+    snap
 }
 
 pub fn spawn(rx: Receiver<Focus>, tx: Sender<Snapshot>) {
@@ -155,6 +193,9 @@ pub fn pss_targets(
 
 fn tick(st: &mut State, pss_budget: Duration) -> Snapshot {
     let page_kb = procfs::page_size() / 1024;
+    // `prev_rss` is populated at the end of the first sweep. Only a snapshot
+    // built after that has meaningful delta values.
+    let delta_available = st.ticks > 0;
     let t_sweep = Instant::now();
 
     let pids = procfs::list_pids();
@@ -296,6 +337,8 @@ fn tick(st: &mut State, pss_budget: Duration) -> Snapshot {
         st.scan_seq = st.scan_seq.wrapping_add(1);
         st.pid_cgroup = std::sync::Arc::new(crate::cgroup::pid_map());
         st.pid_exe = std::sync::Arc::new(procfs::pid_exe());
+        st.pid_cmdline = std::sync::Arc::new(procfs::pid_cmdline());
+        st.pid_start = std::sync::Arc::new(procfs::pid_start());
     }
 
     let fresh: Vec<&PssInfo> = st
@@ -308,6 +351,7 @@ fn tick(st: &mut State, pss_budget: Duration) -> Snapshot {
 
     Snapshot {
         rows,
+        delta_available,
         pss: st.pss.clone(),
         mem: st.mem.clone(),
         pressure: procfs::read_pressure(),
@@ -315,7 +359,11 @@ fn tick(st: &mut State, pss_budget: Duration) -> Snapshot {
         cgroups: st.cgroups.clone(),
         pid_cgroup: st.pid_cgroup.clone(),
         pid_exe: st.pid_exe.clone(),
+        pid_cmdline: st.pid_cmdline.clone(),
+        pid_start: st.pid_start.clone(),
         detail,
+        details: Vec::new(),
+        detail_errors: Vec::new(),
         detail_error: if st.want_detail {
             st.detail_error.clone()
         } else {

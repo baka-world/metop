@@ -1229,7 +1229,7 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
                         Cell::from(format!("{:>9}", fmt_kb(g.uss_kb))),
                         Cell::from(format!("{:>9}", fmt_kb(g.anon_kb))),
                         Cell::from(format!("{:>9}", fmt_kb(g.swap_kb))),
-                        Cell::from(format!("{:>9}", fmt_kb(g.size_kb))),
+                        Cell::from(format!("{:>9}", fmt_kb(g.vsize_kb))),
                         Cell::from(format!("{:>5}", g.count)),
                         split_cell_scaled(g.uss_kb, g.pss_kb.saturating_sub(g.uss_kb), frac, &p),
                     ])
@@ -1249,7 +1249,7 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
                         Cell::from(format!("{:>9}", fmt_kb(v.uss_kb))),
                         Cell::from(format!("{:>9}", fmt_kb(v.anon_kb))),
                         Cell::from(format!("{:>9}", fmt_kb(v.swap_kb))),
-                        Cell::from(format!("{:>9}", fmt_kb(v.size_kb))),
+                        Cell::from(format!("{:>9}", fmt_kb(v.vsize_kb))),
                         Cell::from(""),
                         split_cell_scaled(v.uss_kb, v.pss_kb.saturating_sub(v.uss_kb), frac, &p),
                     ])
@@ -1264,7 +1264,7 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
         Cell::from(format!("{:>9}", "USS")),
         Cell::from(format!("{:>9}", "ANON")),
         Cell::from(format!("{:>9}", "SWAP")),
-        Cell::from(format!("{:>9}", "SIZE")),
+        Cell::from(format!("{:>9}", "VSIZE")),
         Cell::from(format!("{:>5}", "VMAS")),
         Cell::from("  PRIV|SHARED"),
     ])

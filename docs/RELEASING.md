@@ -5,6 +5,11 @@ metop uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and
 `Cargo.toml` is the single source of truth: the release tag must be exactly
 `v` + that version, and CI enforces it.
 
+The issue → fix → verification flow is documented in
+[CONTRIBUTING.md](../CONTRIBUTING.md). Every issue scheduled for a release
+belongs to exactly one release milestone; close it only after the fix is
+merged and verified.
+
 ## Version policy
 
 | Change | Version |

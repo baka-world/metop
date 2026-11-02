@@ -1,0 +1,90 @@
+name: Bug report
+description: Report incorrect, misleading or crashing behaviour
+title: "fix(scope): "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Keep it reproducible and include observed output,
+        not only a description. If you are unsure whether it is a bug, open a
+        feature request or a discussion instead.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One paragraph describing the user-visible symptom.
+      placeholder: "metop --json --fields detail returns detail:null without detail_error..."
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version and environment
+      description: metop version or commit, distribution, kernel, and whether the run was root or unprivileged.
+      placeholder: "metop 0.4.0, Fedora 45, 6.12.x, unprivileged"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Exact commands, flags, and fixtures. Prefer a minimal JSON snapshot over prose.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What should the output or state be?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: Paste the observed output or a precise description. Include exit codes.
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: Who is misled, and what decision or script goes wrong?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed fix
+      description: The smallest acceptable change and any alternatives or compatibility concerns.
+    validations:
+      required: false
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: One verifiable checkbox per line.
+      value: |
+        - [ ] ...
+        - [ ] ...
+        - [ ] Regression test or documented manual verification
+    validations:
+      required: true
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Source paths, related issues/PRs, measurements, or prior reports.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: I reproduced this on the current `main` or the latest release, and stated which.
+          required: true

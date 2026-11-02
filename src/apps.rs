@@ -11,9 +11,43 @@ use ratatui::layout::Rect;
 
 use crate::model::{ProcRow, PssInfo};
 
+/// How an app group's name was chosen. A group can mix sources when two
+/// different derivation paths produce the same name.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum AppSource {
+    #[default]
+    Unknown,
+    Scope,
+    Exe,
+    Comm,
+    Mixed,
+}
+
+impl AppSource {
+    pub fn label(self) -> &'static str {
+        match self {
+            AppSource::Scope => "scope",
+            AppSource::Exe => "exe",
+            AppSource::Comm => "comm",
+            AppSource::Mixed => "mixed",
+            AppSource::Unknown => "comm",
+        }
+    }
+
+    fn merge(self, other: AppSource) -> AppSource {
+        match (self, other) {
+            (AppSource::Unknown, other) => other,
+            (this, other) if this == other => this,
+            _ => AppSource::Mixed,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AppGroup {
     pub name: String,
+    /// How the name was derived; `None` only for synthetic groups.
+    pub source: Option<AppSource>,
     pub pss_kb: u64,
     pub uss_kb: u64,
     pub rss_kb: u64,
@@ -70,18 +104,22 @@ fn scope_app_name(cgroup_path: &str) -> Option<String> {
     (!name.is_empty()).then_some(name)
 }
 
-pub fn app_name(comm: &str, cgroup: Option<&str>, exe: Option<&str>) -> String {
+pub fn app_identity(comm: &str, cgroup: Option<&str>, exe: Option<&str>) -> (String, AppSource) {
     if let Some(name) = cgroup.and_then(scope_app_name) {
-        return name;
+        return (name, AppSource::Scope);
     }
     if let Some(path) = exe {
         let base = path.rsplit('/').next().unwrap_or(path);
         let base = base.trim_end_matches(" (deleted)");
         if !base.is_empty() {
-            return base.to_string();
+            return (base.to_string(), AppSource::Exe);
         }
     }
-    comm.to_string()
+    (comm.to_string(), AppSource::Comm)
+}
+
+pub fn app_name(comm: &str, cgroup: Option<&str>, exe: Option<&str>) -> String {
+    app_identity(comm, cgroup, exe).0
 }
 
 /// One group per app, biggest PSS first.
@@ -93,15 +131,17 @@ pub fn group(
 ) -> Vec<AppGroup> {
     let mut groups: HashMap<String, AppGroup> = HashMap::new();
     for row in rows {
-        let name = app_name(
+        let (name, source) = app_identity(
             &row.comm,
             pid_cgroup.get(&row.pid).map(String::as_str),
             pid_exe.get(&row.pid).map(String::as_str),
         );
         let g = groups.entry(name.clone()).or_insert_with(|| AppGroup {
             name,
+            source: Some(source),
             ..Default::default()
         });
+        g.source = Some(g.source.unwrap_or(AppSource::Unknown).merge(source));
         g.procs += 1;
         g.rss_kb += row.rss_kb;
         g.pids.push(row.pid);
@@ -303,6 +343,22 @@ mod tests {
     }
 
     #[test]
+    fn mixed_derivation_sources_are_marked() {
+        let rows = [row(1, "x", 100), row(2, "x", 100)];
+        let pss = HashMap::from([(1, info(10, 5)), (2, info(20, 6))]);
+        let cg = HashMap::from([(1, "/user.slice/app-same-1.scope".to_string())]);
+        let exe = HashMap::from([(1, "/opt/same".to_string()), (2, "/opt/same".to_string())]);
+        let groups = group(&rows, &pss, &cg, &exe);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].name, "same");
+        assert_eq!(
+            groups[0].source,
+            Some(AppSource::Mixed),
+            "scope and exe paths collapsed under the same name"
+        );
+    }
+
+    #[test]
     fn processes_merge_into_one_app_across_scopes() {
         let rows = [
             row(1, "chrome", 100),
@@ -339,6 +395,7 @@ mod tests {
         let mut groups: Vec<AppGroup> = (0..12)
             .map(|i| AppGroup {
                 name: format!("g{i}"),
+                source: None,
                 pss_kb: if i == 0 { 5000 } else { 10 },
                 uss_kb: 10,
                 rss_kb: 20,

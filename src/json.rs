@@ -7,8 +7,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::{Value, json};
 
 use crate::apps;
-use crate::model::Snapshot;
+use crate::model::{Detail, Snapshot};
 use crate::procfs::Rollup;
+
+/// Bumped when a field is renamed or its type changes. `--diff` keeps reading
+/// v1 snapshots so old captures remain comparable.
+pub const SCHEMA: &str = "metop.snapshot.v2";
 
 fn rollup_json(r: &Rollup) -> Value {
     json!({
@@ -29,7 +33,7 @@ fn rollup_json(r: &Rollup) -> Value {
 /// Keep only the requested dotted paths, e.g. `procs.pid, procs.pss.pss_kb`.
 /// `schema` and `at_unix_ms` are always kept: a document without them cannot be
 /// identified or ordered.
-pub fn render(snap: &Snapshot, fields: &[String]) -> Result<String, String> {
+pub fn render(snap: &Snapshot, fields: &[String], include_vmas: bool) -> Result<String, String> {
     let include_apps = fields.is_empty()
         || fields.iter().any(|field| {
             field
@@ -38,7 +42,7 @@ pub fn render(snap: &Snapshot, fields: &[String]) -> Result<String, String> {
                 .find(|part| !part.is_empty())
                 == Some("apps")
         });
-    let doc = build_doc(snap, include_apps);
+    let doc = build_doc(snap, include_apps, include_vmas);
     if fields.is_empty() {
         return Ok(pretty(&doc));
     }
@@ -56,18 +60,53 @@ pub fn render(snap: &Snapshot, fields: &[String]) -> Result<String, String> {
         let empty_apps_field = doc["apps"].as_array().is_some_and(Vec::is_empty)
             && path.len() == 2
             && path[0] == "apps"
-            && ["name", "pss_kb", "uss_kb", "rss_kb", "procs", "pids"].contains(&path[1].as_str());
-        if !exists(&doc, &path) && !empty_apps_field {
+            && [
+                "name", "source", "pss_kb", "uss_kb", "rss_kb", "procs", "pids",
+            ]
+            .contains(&path[1].as_str());
+        let empty_details_field = doc["details"].as_array().is_some_and(Vec::is_empty)
+            && path.len() >= 2
+            && path[0] == "details"
+            && [
+                "pid",
+                "comm",
+                "cmdline",
+                "parse_ms",
+                "rollup",
+                "vma_count",
+                "groups",
+            ]
+            .contains(&path[1].as_str());
+        if !exists(&doc, &path) && !empty_apps_field && !empty_details_field {
             return Err(format!(
-                "unknown field path {raw:?}; top-level keys are: {}",
-                doc.as_object()
-                    .map(|m| m.keys().cloned().collect::<Vec<_>>().join(", "))
-                    .unwrap_or_default()
+                "unknown field path {raw:?}; {}",
+                path_hint(&doc, &path)
             ));
         }
         paths.push(path);
     }
-    let projected = project(&doc, &paths);
+    let wants_detail = paths
+        .iter()
+        .any(|path| path.first().is_some_and(|part| part == "detail"));
+    let wants_details = paths
+        .iter()
+        .any(|path| path.first().is_some_and(|part| part == "details"));
+    let mut projected = project(&doc, &paths);
+    if let Value::Object(map) = &mut projected {
+        // The error fields are the reason a detail section is null. Projecting
+        // the section alone must not strip that context.
+        for (needed, key) in [
+            (wants_detail, "detail_error"),
+            (wants_details, "detail_errors"),
+        ] {
+            if needed
+                && !map.contains_key(key)
+                && let Some(error) = doc.get(key)
+            {
+                map.insert(key.into(), error.clone());
+            }
+        }
+    }
     Ok(pretty(&projected))
 }
 
@@ -80,12 +119,17 @@ fn exists(value: &Value, path: &[String]) -> bool {
         return true;
     };
     match value {
-        Value::Object(map) => map.get(first).is_some_and(|v| exists(v, &path[1..])),
+        Value::Object(map) => match map.get(first) {
+            // A whole section may be null (`detail` without --pid). Its
+            // children are still valid because they exist once there is data,
+            // but an arbitrary child of a null non-detail section is a typo.
+            Some(Value::Null) => path.len() == 1 || first == "detail",
+            Some(v) => exists(v, &path[1..]),
+            None => false,
+        },
         // Every element is a record; the path applies to each of them.
         Value::Array(items) => items.iter().any(|item| exists(item, path)),
-        // A null section (e.g. `detail` without --pid) is allowed: the caller
-        // asked for a path that would exist once there is data.
-        Value::Null => true,
+        Value::Null => false,
         _ => false,
     }
 }
@@ -130,6 +174,90 @@ fn project_with(value: &Value, field: &Field) -> Value {
     }
 }
 
+/// Leaf paths present in a snapshot, for `--fields help`. Arrays contribute
+/// one set of paths because the projection applies to every record.
+pub fn help_paths(snap: &Snapshot, include_vmas: bool) -> Vec<String> {
+    let doc = build_doc(snap, true, include_vmas);
+    let mut paths = Vec::new();
+    collect_paths(&doc, "", &mut paths);
+    paths.sort();
+    paths.dedup();
+    paths
+}
+
+fn collect_paths(value: &Value, prefix: &str, out: &mut Vec<String>) {
+    match value {
+        Value::Object(map) => {
+            if map.is_empty() && !prefix.is_empty() {
+                out.push(prefix.to_string());
+                return;
+            }
+            for (key, child) in map {
+                let path = if prefix.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{prefix}.{key}")
+                };
+                match child {
+                    Value::Object(_) | Value::Array(_) => collect_paths(child, &path, out),
+                    _ => out.push(path),
+                }
+            }
+        }
+        Value::Array(items) => {
+            if items.is_empty() {
+                if !prefix.is_empty() {
+                    out.push(prefix.to_string());
+                }
+            } else {
+                // Consider every record: the first pid may have a null PSS or
+                // no cgroup, while later records expose the real children.
+                for item in items {
+                    collect_paths(item, prefix, out);
+                }
+            }
+        }
+        _ => {
+            if !prefix.is_empty() {
+                out.push(prefix.to_string());
+            }
+        }
+    }
+}
+
+/// Point at the longest valid prefix of a typo and list its next segments.
+fn path_hint(value: &Value, path: &[String]) -> String {
+    let mut leaves = Vec::new();
+    collect_paths(value, "", &mut leaves);
+    let mut best = 0;
+    for leaf in &leaves {
+        let parts: Vec<&str> = leaf.split('.').collect();
+        let mut n = 0;
+        while n < path.len() && n < parts.len() && parts[n] == path[n] {
+            n += 1;
+        }
+        best = best.max(n);
+    }
+    if best == 0 {
+        let keys = value
+            .as_object()
+            .map(|map| map.keys().cloned().collect::<Vec<_>>().join(", "))
+            .unwrap_or_default();
+        return format!("top-level keys are: {keys}");
+    }
+    let prefix = path[..best].join(".");
+    let mut children: Vec<String> = leaves
+        .iter()
+        .filter_map(|leaf| {
+            let parts: Vec<&str> = leaf.split('.').collect();
+            (parts.len() > best && parts[..best] == path[..best]).then(|| parts[best].to_string())
+        })
+        .collect();
+    children.sort();
+    children.dedup();
+    format!("available under {prefix:?}: {}", children.join(", "))
+}
+
 fn project(doc: &Value, paths: &[Vec<String>]) -> Value {
     let mut out = project_with(doc, &build_trie(paths));
     if let Value::Object(map) = &mut out {
@@ -144,7 +272,55 @@ fn project(doc: &Value, paths: &[Vec<String>]) -> Value {
     out
 }
 
-fn build_doc(snap: &Snapshot, include_apps: bool) -> Value {
+fn detail_json(d: &Detail, include_vmas: bool) -> Value {
+    let groups: Vec<Value> = d
+        .report
+        .groups
+        .iter()
+        .map(|g| {
+            let mut group = json!({
+                "label": g.label,
+                "vsize_kb": g.vsize_kb,
+                "rss_kb": g.rss_kb,
+                "pss_kb": g.pss_kb,
+                "uss_kb": g.uss_kb,
+                "anon_kb": g.anon_kb,
+                "swap_kb": g.swap_kb,
+                "vma_count": g.count,
+            });
+            if include_vmas {
+                group["vma_list"] = json!(
+                    g.vmas
+                        .iter()
+                        .map(|v| json!({
+                            "start": v.start,
+                            "end": v.end,
+                            "perms": v.perms,
+                            "vsize_kb": v.vsize_kb,
+                            "rss_kb": v.rss_kb,
+                            "pss_kb": v.pss_kb,
+                            "uss_kb": v.uss_kb,
+                            "anon_kb": v.anon_kb,
+                            "swap_kb": v.swap_kb,
+                        }))
+                        .collect::<Vec<_>>()
+                );
+            }
+            group
+        })
+        .collect();
+    json!({
+        "pid": d.pid,
+        "comm": d.comm,
+        "cmdline": d.cmdline,
+        "parse_ms": d.parse_ms,
+        "rollup": rollup_json(&d.rollup),
+        "vma_count": d.report.vma_count,
+        "groups": groups,
+    })
+}
+
+fn build_doc(snap: &Snapshot, include_apps: bool, include_vmas: bool) -> Value {
     let now_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
@@ -162,8 +338,16 @@ fn build_doc(snap: &Snapshot, include_apps: bool) -> Value {
             json!({
                 "pid": row.pid,
                 "comm": row.comm,
+                "exe": snap.pid_exe.get(&row.pid),
+                "cmdline": snap.pid_cmdline.get(&row.pid),
+                "start_unix_ms": snap.pid_start.get(&row.pid),
+                "cgroup": snap.pid_cgroup.get(&row.pid),
                 "rss_kb": row.rss_kb,
-                "delta_kb": row.delta_kb,
+                "delta_kb": if snap.delta_available {
+                    Value::from(row.delta_kb)
+                } else {
+                    Value::Null
+                },
                 "denied": snap.denied.contains(&row.pid),
                 "no_mm": snap.no_mm.contains(&row.pid),
                 "pss_age_ms": pss.map(|p| p.at.elapsed().as_millis() as u64),
@@ -178,6 +362,10 @@ fn build_doc(snap: &Snapshot, include_apps: bool) -> Value {
             .map(|group| {
                 json!({
                     "name": group.name,
+                    "source": group
+                        .source
+                        .unwrap_or(crate::apps::AppSource::Comm)
+                        .label(),
                     "pss_kb": group.pss_kb,
                     "uss_kb": group.uss_kb,
                     "rss_kb": group.rss_kb,
@@ -190,28 +378,20 @@ fn build_doc(snap: &Snapshot, include_apps: bool) -> Value {
         Vec::new()
     };
 
-    let detail = snap.detail.as_ref().map(|d| {
-        json!({
-            "pid": d.pid,
-            "comm": d.comm,
-            "cmdline": d.cmdline,
-            "parse_ms": d.parse_ms,
-            "rollup": rollup_json(&d.rollup),
-            "vma_count": d.report.vma_count,
-            "groups": d.report.groups.iter().map(|g| json!({
-                "label": g.label,
-                "size_kb": g.size_kb,
-                "pss_kb": g.pss_kb,
-                "uss_kb": g.uss_kb,
-                "anon_kb": g.anon_kb,
-                "swap_kb": g.swap_kb,
-                "vmas": g.count,
-            })).collect::<Vec<_>>(),
-        })
-    });
+    let detail = snap.detail.as_ref().map(|d| detail_json(d, include_vmas));
+    let details: Vec<Value> = snap
+        .details
+        .iter()
+        .map(|d| detail_json(d, include_vmas))
+        .collect();
+    let detail_errors: Vec<Value> = snap
+        .detail_errors
+        .iter()
+        .map(|e| json!({"pid": e.pid, "error": e.error}))
+        .collect();
 
     let doc = json!({
-        "schema": "metop.snapshot.v1",
+        "schema": SCHEMA,
         "at_unix_ms": now_ms,
         // The process that wrote this snapshot. A later --diff must ignore it:
         // its pid is new every run, so it would show up as a phantom +3 MB.
@@ -251,7 +431,9 @@ fn build_doc(snap: &Snapshot, include_apps: bool) -> Value {
             "psi_full10": c.psi_full10,
         })).collect::<Vec<_>>(),
         "detail_error": snap.detail_error,
+        "detail_errors": detail_errors,
         "detail": detail,
+        "details": details,
         "apps": apps,
         "procs": procs,
     });
@@ -293,6 +475,7 @@ mod tests {
             at: now,
         };
         Snapshot {
+            delta_available: false,
             rows: vec![
                 row(30, "helper", 30),
                 row(20, "beta", 20),
@@ -313,7 +496,11 @@ mod tests {
                 (10, "/bin/ignored".into()),
                 (20, "/bin/beta".into()),
             ])),
+            pid_cmdline: Arc::new(HashMap::new()),
+            pid_start: Arc::new(HashMap::new()),
             detail: None,
+            details: Vec::new(),
+            detail_errors: Vec::new(),
             detail_error: None,
             sweep_ms: 0.0,
             pss_ms: 0.0,
@@ -328,18 +515,18 @@ mod tests {
     #[test]
     fn apps_export_complete_groups_and_project_fields() {
         let snap = snapshot();
-        let doc = build_doc(&snap, true);
+        let doc = build_doc(&snap, true, false);
         assert_eq!(
             doc["apps"],
             json!([
-                {"name": "browser", "pss_kb": 15, "uss_kb": 8, "rss_kb": 40, "procs": 2, "pids": [10, 30]},
-                {"name": "alpha", "pss_kb": 5, "uss_kb": 2, "rss_kb": 40, "procs": 1, "pids": [40]},
-                {"name": "beta", "pss_kb": 5, "uss_kb": 3, "rss_kb": 20, "procs": 1, "pids": [20]},
-                {"name": "unreadable", "pss_kb": 0, "uss_kb": 0, "rss_kb": 50, "procs": 1, "pids": [50]},
+                {"name": "browser", "source": "scope", "pss_kb": 15, "uss_kb": 8, "rss_kb": 40, "procs": 2, "pids": [10, 30]},
+                {"name": "alpha", "source": "comm", "pss_kb": 5, "uss_kb": 2, "rss_kb": 40, "procs": 1, "pids": [40]},
+                {"name": "beta", "source": "exe", "pss_kb": 5, "uss_kb": 3, "rss_kb": 20, "procs": 1, "pids": [20]},
+                {"name": "unreadable", "source": "comm", "pss_kb": 0, "uss_kb": 0, "rss_kb": 50, "procs": 1, "pids": [50]},
             ])
         );
         let projected: Value = serde_json::from_str(
-            &render(&snap, &["apps.name".into(), "apps.pss_kb".into()]).unwrap(),
+            &render(&snap, &["apps.name".into(), "apps.pss_kb".into()], false).unwrap(),
         )
         .unwrap();
         assert_eq!(
@@ -359,11 +546,11 @@ mod tests {
         let mut snap = snapshot();
         snap.rows.clear();
         let projected: Value = serde_json::from_str(
-            &render(&snap, &["apps.name".into(), "apps.pss_kb".into()]).unwrap(),
+            &render(&snap, &["apps.name".into(), "apps.pss_kb".into()], false).unwrap(),
         )
         .unwrap();
         assert_eq!(projected["apps"], json!([]));
-        assert!(render(&snap, &["apps.nope".into()]).is_err());
+        assert!(render(&snap, &["apps.nope".into()], false).is_err());
     }
 
     fn doc() -> Value {

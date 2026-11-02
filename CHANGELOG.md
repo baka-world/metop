@@ -14,13 +14,45 @@ version (`0.MINOR.PATCH`).
   120) for process, app, cgroup PSI and OOM histories.
 - Uncollapsed application groups in JSON snapshots, including memory totals,
   process counts and PIDs, with `--fields` projection support.
+- JSON process identity and grouping context: `procs[].exe`, `cmdline`,
+  `start_unix_ms` and `cgroup`, plus `apps[].source`
+  (`scope` / `exe` / `comm` / `mixed`).
+- JSON VMA detail: `detail.groups[].rss_kb`, unambiguous `vsize_kb`, and
+  opt-in per-VMA records via `--vmas` (`vma_list[]`). The group count is now
+  `vma_count`.
+- Multiple VMA details in one snapshot: repeatable `--pid` or `--pids A,B`
+  emits `details[]` with `detail_errors[]`, sharing one `at_unix_ms`.
+- `--fields help` lists the leaf paths available in the current snapshot;
+  unknown paths report the children of the failing segment.
+- `--detail` / `--no-detail` make the JSON detail section explicit.
+- `--min-delta-metric rss|pss|max` for `--diff` (default `max`), so the
+  threshold and row ranking include PSS.
 - Vim-style `/` shortcut for filtering, alongside the existing `f` key.
 - Vim-style half-page and full-page navigation, plus `Ctrl-w` and `Ctrl-u`
   editing in filter inputs.
+- `CONTRIBUTING.md`, bug/feature issue forms, a PR template, priority/area
+  labels and the `v0.5.0` milestone as the issue-first workflow.
 
 ### Changed
 
+- The `--json` schema is now `metop.snapshot.v2`. `detail.groups[].size_kb`
+  became `vsize_kb` (virtual address space), `detail.groups[].vmas` became
+  `vma_count`, and a one-shot snapshot emits `delta_kb: null` instead of a
+  misleading zero. `--diff` still accepts v1 and legacy `mtop.snapshot.v1`.
+- `--json --pid` still includes detail, but a projection that does not name
+  `detail` (for example `--fields procs.pid`) no longer pays the `smaps` walk.
+- `--diff` filters and ranks by `max(|ΔRSS|, |ΔPSS|)` by default; `--min-delta`
+  keeps the selected metric.
 - `PgUp` and `PgDn` now use the actual viewport height instead of ten rows.
+
+### Fixed
+
+- `--fields detail` retains `detail_error`, so a denied or missing pid is no
+  longer an unexplained `detail: null`.
+- A PSS-only change is no longer hidden by `--min-delta` or cut by `--top`
+  merely because RSS is flat.
+- Detail docs and the TUI help call the VMA `VSIZE` value virtual memory, not
+  resident memory.
 
 ## [0.4.0] - 2026-11-01
 
