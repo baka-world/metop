@@ -8,6 +8,13 @@ version (`0.MINOR.PATCH`).
 
 ## [Unreleased]
 
+### Added
+
+- Colour-depth rendering: themes stay truecolor on capable terminals and are
+  quantised to 256 colours (`Color::Indexed`, btop's 6×6×6 cube + grey ramp) or
+  named ANSI colours otherwise. `--color auto|truecolor|256|16` overrides
+  detection.
+
 ## [0.2.0] - 2026-11-01
 
 ### Added

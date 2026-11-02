@@ -3,7 +3,7 @@ use std::sync::mpsc;
 
 use mtop::app::App;
 use mtop::sampler;
-use mtop::theme::Theme;
+use mtop::theme::{ColorSupport, Theme};
 
 const HELP: &str = "\
 mtop - Linux memory analysis TUI
@@ -18,6 +18,8 @@ OPTIONS:
         --theme NAME  TUI colour theme: default, btop, dracula,
                       gruvbox-dark, kanagawa-wave, light, ansi16
                       (also MTOP_THEME; `t` switches at runtime)
+        --color MODE  colour depth: auto, truecolor, 256, 16
+                      (auto follows COLORTERM/TERM)
         --json      print one snapshot as JSON and exit (diffable; no TUI)
         --fields P  comma-separated dotted paths to keep, e.g.
                     procs.pid,procs.comm,procs.pss.pss_kb (schema/at always kept)
@@ -40,6 +42,7 @@ KEYS:
 fn main() -> ExitCode {
     let mut start_pid = None;
     let mut theme: Option<Theme> = None;
+    let mut support: Option<ColorSupport> = None;
     let mut json_out = false;
     let mut fields: Vec<String> = Vec::new();
     let mut diff: Option<(String, String)> = None;
@@ -73,6 +76,16 @@ fn main() -> ExitCode {
                     },
                     None => {
                         eprintln!("mtop: --theme needs a name ({})", Theme::NAMES);
+                        return ExitCode::from(2);
+                    }
+                }
+            }
+            "--color" => {
+                i += 1;
+                match args.get(i).and_then(|name| ColorSupport::parse(name)) {
+                    Some(mode) => support = Some(mode),
+                    None => {
+                        eprintln!("mtop: --color needs one of {}", ColorSupport::NAMES);
                         return ExitCode::from(2);
                     }
                 }
@@ -204,12 +217,14 @@ fn main() -> ExitCode {
         Err(_) => Theme::DEFAULT,
     });
 
+    let support = support.unwrap_or_else(ColorSupport::detect);
+
     let (cmd_tx, cmd_rx) = mpsc::channel();
     let (snap_tx, snap_rx) = mpsc::channel();
     sampler::spawn(cmd_rx, snap_tx);
 
     let mut terminal = ratatui::init();
-    let result = App::run(&mut terminal, start_pid, theme, cmd_tx, snap_rx);
+    let result = App::run(&mut terminal, start_pid, theme, support, cmd_tx, snap_rx);
     ratatui::restore();
     match result {
         Ok(()) => ExitCode::SUCCESS,

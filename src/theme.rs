@@ -12,6 +12,59 @@
 
 use ratatui::style::{Color, Style};
 
+/// How many colours the terminal can actually display.
+///
+/// Themes are authored in 24-bit RGB; [`Theme::rendered`] converts each slot to
+/// the terminal's depth, so a 256-colour terminal gets `38;5;n` instead of RGB
+/// SGR it may not parse, and a 16-colour terminal gets named ANSI colours.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ColorSupport {
+    TrueColor,
+    Ansi256,
+    Ansi16,
+}
+
+impl ColorSupport {
+    /// Best-effort detection from `COLORTERM`/`TERM`, falling back to
+    /// crossterm's count. Checking both matters: crossterm prefers an empty
+    /// `COLORTERM` over a perfectly good `TERM=...-256color`.
+    pub fn detect() -> Self {
+        if let Some(value) = std::env::var_os("COLORTERM") {
+            let value = value.to_string_lossy();
+            if value.contains("truecolor") || value.contains("24bit") {
+                return Self::TrueColor;
+            }
+        }
+        if let Some(value) = std::env::var_os("TERM") {
+            let value = value.to_string_lossy();
+            if value.contains("256color") {
+                return Self::Ansi256;
+            }
+            if value.contains("direct") {
+                return Self::TrueColor;
+            }
+        }
+        match ratatui::crossterm::style::available_color_count() {
+            u16::MAX => Self::TrueColor,
+            256 => Self::Ansi256,
+            _ => Self::Ansi16,
+        }
+    }
+
+    pub const NAMES: &'static str = "auto, truecolor, 256, 16";
+
+    /// Parse a `--color` value; `auto` performs detection.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.to_ascii_lowercase().as_str() {
+            "auto" => Some(Self::detect()),
+            "truecolor" | "24bit" => Some(Self::TrueColor),
+            "256" | "ansi256" => Some(Self::Ansi256),
+            "16" | "ansi16" => Some(Self::Ansi16),
+            _ => None,
+        }
+    }
+}
+
 /// Semantic colours used by the whole UI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Palette {
@@ -89,6 +142,28 @@ impl Palette {
             self.dim
         }
     }
+
+    /// Convert every RGB slot to the terminal's colour depth.
+    pub fn rendered(self, support: ColorSupport) -> Self {
+        Self {
+            dim: render_color(self.dim, support),
+            dim_selected: render_color(self.dim_selected, support),
+            highlight_bg: render_color(self.highlight_bg, support),
+            accent: render_color(self.accent, support),
+            bar: render_color(self.bar, support),
+            ok: render_color(self.ok, support),
+            warn: render_color(self.warn, support),
+            crit: render_color(self.crit, support),
+            focus: render_color(self.focus, support),
+            anon: render_color(self.anon, support),
+            file: render_color(self.file, support),
+            shmem: render_color(self.shmem, support),
+            swap: render_color(self.swap, support),
+            swap_pss: render_color(self.swap_pss, support),
+            tile_fg: render_color(self.tile_fg, support),
+            treemap: self.treemap.map(|color| render_color(color, support)),
+        }
+    }
 }
 
 /// `Color::Rgb` with byte components, so theme tables read like the hex they
@@ -105,6 +180,58 @@ const fn shade((r, g, b): (u8, u8, u8), pct: u16) -> Color {
         ((g as u16 * pct) / 100) as u8,
         ((b as u16 * pct) / 100) as u8,
     )
+}
+
+/// Convert one RGB colour to what `support` can display.
+fn render_color(color: Color, support: ColorSupport) -> Color {
+    match (support, color) {
+        (ColorSupport::TrueColor, color) => color,
+        (ColorSupport::Ansi256, Color::Rgb(r, g, b)) => Color::Indexed(rgb_to_256(r, g, b)),
+        (ColorSupport::Ansi16, Color::Rgb(r, g, b)) => nearest_ansi16(r, g, b),
+        (_, color) => color,
+    }
+}
+
+/// btop's truecolor->256 rule: the 232-255 grey ramp when the channels are
+/// close, otherwise the 6x6x6 colour cube.
+fn rgb_to_256(r: u8, g: u8, b: u8) -> u8 {
+    let (rf, gf, bf) = (r as f64, g as f64, b as f64);
+    if (rf / 11.0).round() == (gf / 11.0).round() && (gf / 11.0).round() == (bf / 11.0).round() {
+        (232.0 + (rf / 11.0).round()).min(255.0) as u8
+    } else {
+        (16.0 + (rf / 51.0).round() * 36.0 + (gf / 51.0).round() * 6.0 + (bf / 51.0).round()) as u8
+    }
+}
+
+#[rustfmt::skip]
+const ANSI16_RGB: [(u8, u8, u8); 16] = [
+    (0, 0, 0), (128, 0, 0), (0, 128, 0), (128, 128, 0),
+    (0, 0, 128), (128, 0, 128), (0, 128, 128), (192, 192, 192),
+    (85, 85, 85), (255, 0, 0), (0, 255, 0), (255, 255, 0),
+    (0, 0, 255), (255, 0, 255), (0, 255, 255), (255, 255, 255),
+];
+
+#[rustfmt::skip]
+const ANSI16_COLORS: [Color; 16] = [
+    Color::Black, Color::Red, Color::Green, Color::Yellow,
+    Color::Blue, Color::Magenta, Color::Cyan, Color::Gray,
+    Color::DarkGray, Color::LightRed, Color::LightGreen, Color::LightYellow,
+    Color::LightBlue, Color::LightMagenta, Color::LightCyan, Color::White,
+];
+
+fn nearest_ansi16(r: u8, g: u8, b: u8) -> Color {
+    let mut best = 0;
+    let mut best_distance = u32::MAX;
+    for (index, (r2, g2, b2)) in ANSI16_RGB.into_iter().enumerate() {
+        let distance = (i32::from(r) - i32::from(r2)).pow(2) as u32
+            + (i32::from(g) - i32::from(g2)).pow(2) as u32
+            + (i32::from(b) - i32::from(b2)).pow(2) as u32;
+        if distance < best_distance {
+            best_distance = distance;
+            best = index;
+        }
+    }
+    ANSI16_COLORS[best]
 }
 
 /// A named built-in palette.
@@ -308,6 +435,14 @@ impl Theme {
         },
     };
 
+    /// Apply terminal colour-depth conversion while keeping the theme name.
+    pub fn rendered(self, support: ColorSupport) -> Self {
+        Self {
+            name: self.name,
+            palette: self.palette.rendered(support),
+        }
+    }
+
     pub const ALL: [Self; 7] = [
         Self::DEFAULT,
         Self::BTOP,
@@ -414,6 +549,62 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn ansi256_conversion_uses_the_cube_and_grey_ramp() {
+        assert_eq!(super::rgb_to_256(255, 0, 0), 196);
+        assert_eq!(super::rgb_to_256(0, 255, 0), 46);
+        assert_eq!(super::rgb_to_256(0, 0, 255), 21);
+        assert_eq!(super::rgb_to_256(0, 0, 0), 232);
+        assert_eq!(super::rgb_to_256(255, 255, 255), 255);
+        assert_eq!(super::rgb_to_256(128, 128, 128), 244);
+    }
+
+    #[test]
+    fn rendered_256_maps_rgb_to_indexed_and_keeps_the_name() {
+        let theme = Theme::BTOP.rendered(super::ColorSupport::Ansi256);
+        assert_eq!(theme.name, "btop");
+        assert_eq!(
+            theme.palette.highlight_bg,
+            Color::Indexed(super::rgb_to_256(0x6a, 0x2f, 0x2f))
+        );
+        assert!(matches!(theme.palette.treemap[0], Color::Indexed(_)));
+    }
+
+    #[test]
+    fn rendered_16_uses_named_ansi_colours() {
+        use super::ColorSupport;
+        assert_eq!(
+            super::render_color(Color::Rgb(255, 0, 0), ColorSupport::Ansi16),
+            Color::LightRed
+        );
+        assert_eq!(
+            super::render_color(Color::Rgb(0, 0, 0), ColorSupport::Ansi16),
+            Color::Black
+        );
+        assert_eq!(
+            super::render_color(Color::Rgb(255, 255, 255), ColorSupport::Ansi16),
+            Color::White
+        );
+        // Dark grey must not collapse to black on a dark terminal.
+        assert_eq!(
+            super::render_color(Color::Rgb(0x44, 0x47, 0x5a), ColorSupport::Ansi16),
+            Color::DarkGray
+        );
+        // Named colours from the ansi16 theme are already terminal indices.
+        assert_eq!(
+            super::render_color(Color::Cyan, ColorSupport::Ansi16),
+            Color::Cyan
+        );
+    }
+
+    #[test]
+    fn truecolor_rendering_is_a_no_op() {
+        assert_eq!(
+            Theme::DRACULA.rendered(super::ColorSupport::TrueColor),
+            Theme::DRACULA
+        );
     }
 
     #[test]

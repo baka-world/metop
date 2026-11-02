@@ -735,6 +735,47 @@ fn theme_key_cycles_the_palette_and_names_it_in_the_footer() {
 }
 
 #[test]
+fn ansi256_rendering_uses_indexed_colours_only() {
+    use mtop::theme::{ColorSupport, Theme};
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use ratatui::style::Color;
+
+    let mut app = App::new(None);
+    app.on_snapshot(snapshot());
+    app.support = ColorSupport::Ansi256;
+    app.theme = Theme::BTOP.rendered(app.support);
+
+    let mut term = Terminal::new(TestBackend::new(120, 26)).unwrap();
+    term.draw(|f| mtop::ui::draw(f, &mut app)).unwrap();
+    let fgs: HashSet<Color> = term
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.fg)
+        .collect();
+    assert!(
+        fgs.iter().any(|color| matches!(color, Color::Indexed(_))),
+        "256-colour theme did not use indexed colours: {fgs:?}"
+    );
+    assert!(
+        !fgs.iter().any(|color| matches!(color, Color::Rgb(..))),
+        "256-colour output leaked RGB: {fgs:?}"
+    );
+
+    // Cycling must re-render the next theme at the same depth.
+    app.on_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+    let next = Theme::BTOP.next();
+    assert!(render(&mut app).contains(&format!("theme: {}", next.name)));
+    term.draw(|f| mtop::ui::draw(f, &mut app)).unwrap();
+    assert!(
+        term.backend().buffer().content().iter().all(|cell| {
+            !matches!(cell.fg, Color::Rgb(..)) && !matches!(cell.bg, Color::Rgb(..))
+        })
+    );
+}
+
+#[test]
 fn highlight_never_falls_back_to_the_terminal_background() {
     use mtop::ui::HL_BG;
     use ratatui::style::{Color, Modifier};

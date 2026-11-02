@@ -38,6 +38,8 @@ fn help_lists_the_interfaces_we_actually_have() {
         "--pid",
         "--theme",
         "gruvbox-dark, kanagawa-wave, light, ansi16",
+        "--color",
+        "auto, truecolor, 256, 16",
         "USAGE",
     ] {
         assert!(text.contains(needle), "help missing {needle}:\n{text}");
@@ -54,6 +56,18 @@ fn unknown_theme_is_a_usage_error() {
 
     let missing = run(&["--theme"]);
     assert_eq!(missing.status.code(), Some(2));
+}
+
+#[test]
+fn unknown_colour_mode_is_a_usage_error() {
+    let out = run(&["--color", "512"]);
+    assert_eq!(out.status.code(), Some(2));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("auto, truecolor, 256, 16"), "stderr: {err}");
+
+    // Valid modes parse even when no TUI is started.
+    let ok = run(&["--color", "256", "--version"]);
+    assert!(ok.status.success());
 }
 
 #[test]

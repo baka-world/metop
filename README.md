@@ -29,7 +29,7 @@ RSS sums to roughly **2.2×** the real number system-wide (2.4× for Chrome). mt
 - **cgroup v2 view** — `memory.current` / `memory.stat` / `memory.max` / `memory.events`, PSI (`some`/`full`), OOM deltas, and drill-down into a subtree's processes.
 - **App treemap** — processes grouped into applications (systemd `app-*.scope` → exe → comm), area ∝ PSS, long tail folded into `others`.
 - **Scriptable** — `--json` (with `--fields` projection), `--diff` (with `--min-delta` / `--top`), stable pid ordering for diffing.
-- **Themes** — seven palettes, including btop-derived `btop`, `dracula`, `gruvbox-dark` and `kanagawa-wave`; pick one with `--theme`, `MTOP_THEME`, or `t` while running (no config file).
+- **Themes** — seven palettes, including btop-derived `btop`, `dracula`, `gruvbox-dark` and `kanagawa-wave`; pick one with `--theme`, `MTOP_THEME`, or `t` while running (no config file). Themes are authored in truecolor and auto-rendered to 256 or 16 colours when the terminal cannot display RGB; `--color` overrides detection.
 
 ## Install
 
@@ -63,6 +63,7 @@ mtop                       # whole system
 mtop --pid 1234            # start with a process selected
 mtop --theme dracula       # default | btop | dracula | gruvbox-dark |
                            # kanagawa-wave | light | ansi16 (or MTOP_THEME)
+mtop --color 256           # auto | truecolor | 256 | 16
 mtop --json --fields procs.pid,procs.rss_kb
 mtop --diff a.json b.json --min-delta 50M
 ```
