@@ -638,6 +638,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "memtop"
+version = "0.3.0"
+dependencies = [
+ "procfs",
+ "ratatui",
+ "serde_json",
+]
+
+[[package]]
 name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -653,15 +662,6 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys",
-]
-
-[[package]]
-name = "mtop"
-version = "0.3.0"
-dependencies = [
- "procfs",
- "ratatui",
- "serde_json",
 ]
 
 [[package]]

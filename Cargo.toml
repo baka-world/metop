@@ -1,10 +1,23 @@
 [package]
-name = "mtop"
+name = "memtop"
 version = "0.3.0"
 edition = "2024"
 rust-version = "1.88"
 description = "Linux memory analysis TUI: RSS/PSS/USS per process, VMA drill-down"
 license = "MIT"
+repository = "https://github.com/baka-world/mtop"
+homepage = "https://github.com/baka-world/mtop"
+readme = "README.md"
+keywords = ["tui", "memory", "pss", "monitoring", "linux"]
+categories = ["command-line-utilities"]
+
+[lib]
+name = "mtop"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mtop"
+path = "src/main.rs"
 
 [dependencies]
 # pinned: 0.30 split ratatui into core/widgets/backends; minor bumps have changed
@@ -18,6 +31,7 @@ serde_json = "1"
 # .deb metadata (cargo-deb). The packaged binary is static musl, so it has no
 # runtime dependencies.
 [package.metadata.deb]
+name = "mtop"
 maintainer = "YimoLieu <yimolieu@163.com>"
 copyright = "2026, YimoLieu"
 license-file = ["LICENSE", "4"]
@@ -31,6 +45,7 @@ assets = [
 
 # .rpm metadata (cargo-generate-rpm)
 [package.metadata.generate-rpm]
+name = "mtop"
 summary = "Linux memory analysis TUI"
 license = "MIT"
 vendor = "YimoLieu"
