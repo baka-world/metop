@@ -68,10 +68,10 @@ entry.
 ## crates.io
 
 The GitHub project is `mtop`, but the crates.io name `mtop` is already taken
-(memcached top). The published crate is therefore named **`memtop`**:
+(memcached top). The published crate is therefore named **`metop`**:
 
 - `[lib] name = "mtop"` keeps the Rust library name `mtop`;
-- `[[bin]] name = "mtop"` keeps `cargo install memtop` producing the `mtop`
+- `[[bin]] name = "mtop"` keeps `cargo install metop` producing the `mtop`
   binary;
 - `[package.metadata.deb].name` / `[package.metadata.generate-rpm].name` keep
   the GitHub release packages named `mtop`.
