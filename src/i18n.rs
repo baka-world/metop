@@ -230,56 +230,6 @@ impl T {
         }
     }
 
-    pub fn procs_footer(&self, sort: &str) -> String {
-        if self.is_zh() {
-            format!(
-                " q 退出 │ Tab │ j/k │ g/G │ s 排序 ({sort}) │ r 反向 │ f 过滤 │ Enter 详情 │ t 主题 │ l 语言 │ ? 帮助"
-            )
-        } else {
-            format!(
-                " q quit │ Tab │ j/k │ g/G │ s sort ({sort}) │ r rev │ f filter │ Enter detail │ t theme │ l lang │ ? help"
-            )
-        }
-    }
-
-    pub fn cgroups_footer(&self, sort: &str) -> String {
-        if self.is_zh() {
-            format!(
-                " q 退出 │ Tab 进程 │ j/k │ Enter 列出进程 │ s 排序 ({sort}) │ r 反向 │ f 过滤路径 │ l 语言 │ ? 帮助"
-            )
-        } else {
-            format!(
-                " q quit │ Tab procs │ j/k │ Enter list procs │ s sort ({sort}) │ r reverse │ f filter path │ l lang │ ? help"
-            )
-        }
-    }
-
-    pub fn apps_footer(&self, metric: &str) -> String {
-        if self.is_zh() {
-            format!(
-                " q 退出 │ Tab │ j/k │ Enter 下钻 │ s 指标 ({metric}) │ f 过滤 │ Esc 清除 │ t 主题 │ l 语言 │ ? 帮助"
-            )
-        } else {
-            format!(
-                " q quit │ Tab │ j/k │ Enter drill │ s metric ({metric}) │ f filter │ Esc clear │ t theme │ l lang │ ? help"
-            )
-        }
-    }
-
-    pub fn detail_footer(&self) -> &'static str {
-        self.pick(
-            " q quit │ j/k │ Enter expand │ z/Z collapse/expand all │ f filter │ Esc back │ l lang │ ? help ",
-            " q 退出 │ j/k │ Enter 展开 │ z/Z 全部收起/展开 │ f 过滤 │ Esc 返回 │ l 语言 │ ? 帮助 ",
-        )
-    }
-
-    pub fn drill_footer(&self) -> &'static str {
-        self.pick(
-            " q quit │ j/k scroll │ Esc back to cgroups │ Tab procs │ l lang │ ? help ",
-            " q 退出 │ j/k 滚动 │ Esc 返回 cgroups │ Tab 进程 │ l 语言 │ ? 帮助 ",
-        )
-    }
-
     pub fn editing(&self, detail: bool) -> (&'static str, &'static str) {
         match (self.is_zh(), detail) {
             (false, false) => (" filter: ", "   Enter apply · Esc cancel"),
@@ -343,7 +293,7 @@ const PROCS_EN: Doc = Doc {
                 "PSS/RSS >80% is highlighted: little sharing, not an error.",
                 "Δ/s is the RSS change per 1 s tick; positive is red, negative green.",
                 "SHARE length is relative to the largest visible RSS; colour is relative to total RAM (>15% red, >5% yellow).",
-                "PSS MIX is a fixed 16-cell bar: anon / file / shmem / swap-pss, at least one cell per nonzero category. The footer is the legend.",
+                "PSS MIX is a 16-cell bar: anon / file / shmem / swap-pss, at least one cell per nonzero category. The footer is the legend.",
             ],
         },
         Section {
@@ -351,6 +301,7 @@ const PROCS_EN: Doc = Doc {
             body: &[
                 "— not sampled yet; n/a unreadable (EACCES or a kernel thread); ~ PSS older than 6 s.",
                 "▸ selected row. t theme, l language, ? help.",
+                "Mouse: click a row to select, click it again to open detail; wheel scrolls; footer buttons are clickable.",
             ],
         },
     ],
@@ -383,6 +334,7 @@ const PROCS_ZH: Doc = Doc {
             body: &[
                 "— 尚未采样；n/a 无法读取（EACCES 或内核线程）；~ PSS 超过 6 秒未更新。",
                 "▸ 当前选中行。t 主题，l 语言，? 帮助。",
+                "鼠标：点击行选中，再点一次打开详情；滚轮滚动；footer 按钮可点击。",
             ],
         },
     ],
@@ -407,6 +359,7 @@ const CGROUPS_EN: Doc = Doc {
                 "Enter lists the processes in the selected subtree; Esc returns.",
                 "s changes the sort (current or composition), r reverses, f filters paths.",
                 "l language, ? help.",
+                "Mouse: click a row to select, click it again to open the drill-down; wheel scrolls; footer buttons are clickable.",
             ],
         },
     ],
@@ -431,6 +384,7 @@ const CGROUPS_ZH: Doc = Doc {
                 "Enter 列出选中子树内的进程；Esc 返回。",
                 "s 切换排序（current 或构成），r 反向，f 过滤路径。",
                 "l 语言，? 帮助。",
+                "鼠标：点击行选中，再点一次下钻；滚轮滚动；footer 按钮可点击。",
             ],
         },
     ],
@@ -454,6 +408,7 @@ const APPS_EN: Doc = Doc {
                 "Enter drills into the selected group's processes; Esc clears that filter.",
                 "Narrow or short terminals fall back to a list instead of the treemap.",
                 "s metric, f filter, t theme, l language, ? help.",
+                "Mouse: click a tile/row to select, click it again to drill; wheel scrolls; footer buttons are clickable.",
             ],
         },
     ],
@@ -477,6 +432,7 @@ const APPS_ZH: Doc = Doc {
                 "Enter 下钻到该应用的进程；Esc 清除过滤。",
                 "终端过窄或过矮时回退为列表视图。",
                 "s 指标，f 过滤，t 主题，l 语言，? 帮助。",
+                "鼠标：点击图块/行选中，再点一次下钻；滚轮滚动；footer 按钮可点击。",
             ],
         },
     ],
@@ -492,6 +448,7 @@ const DETAIL_EN: Doc = Doc {
                 "Enter expands a group into individual VMAs with address range and permissions.",
                 "z/Z collapse or expand all; f filters mapping names; Esc leaves detail.",
                 "PRIV|SHARED bar: USS vs (PSS - USS), scaled to the largest group.",
+                "Mouse: click a mapping row to select, click it again to expand its VMAs.",
             ],
         },
         Section {
@@ -515,6 +472,7 @@ const DETAIL_ZH: Doc = Doc {
                 "Enter 把一组展开成逐 VMA，显示地址区间和权限。",
                 "z/Z 全部收起/展开；f 过滤映射名；Esc 退出详情。",
                 "PRIV|SHARED 条：USS 与 (PSS - USS)，按最大组缩放。",
+                "鼠标：点击映射行选中，再点一次展开逐 VMA。",
             ],
         },
         Section {
@@ -544,6 +502,7 @@ const DRILL_EN: Doc = Doc {
             body: &[
                 "Esc returns to the cgroup list; Tab switches to processes.",
                 "j/k scrolls the member list; l language, ? help.",
+                "Mouse: click a member row to select; wheel scrolls; footer buttons are clickable.",
             ],
         },
     ],
@@ -565,6 +524,7 @@ const DRILL_ZH: Doc = Doc {
             body: &[
                 "Esc 返回 cgroup 列表；Tab 切换到进程视图。",
                 "j/k 滚动成员列表；l 语言，? 帮助。",
+                "鼠标：点击成员行选中；滚轮滚动；footer 按钮可点击。",
             ],
         },
     ],

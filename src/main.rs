@@ -5,6 +5,8 @@ use mtop::app::App;
 use mtop::i18n::Lang;
 use mtop::sampler;
 use mtop::theme::{ColorSupport, Theme};
+use ratatui::crossterm::event::{DisableMouseCapture, EnableMouseCapture};
+use ratatui::crossterm::execute;
 
 const HELP: &str = "\
 mtop - Linux memory analysis TUI
@@ -248,6 +250,7 @@ fn main() -> ExitCode {
     sampler::spawn(cmd_rx, snap_tx);
 
     let mut terminal = ratatui::init();
+    let _ = execute!(std::io::stdout(), EnableMouseCapture);
     let result = App::run(
         &mut terminal,
         start_pid,
@@ -257,6 +260,7 @@ fn main() -> ExitCode {
         cmd_tx,
         snap_rx,
     );
+    let _ = execute!(std::io::stdout(), DisableMouseCapture);
     ratatui::restore();
     match result {
         Ok(()) => ExitCode::SUCCESS,

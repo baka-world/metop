@@ -10,6 +10,8 @@ version (`0.MINOR.PATCH`).
 
 ### Added
 
+- Mouse support: click table rows and treemap tiles (click again to open,
+  expand or drill), wheel scrolling, and a clickable footer command bar.
 - Colour-depth rendering: themes stay truecolor on capable terminals and are
   quantised to 256 colours (`Color::Indexed`, btop's 6×6×6 cube + grey ramp) or
   named ANSI colours otherwise. `--color auto|truecolor|256|16` overrides
@@ -20,6 +22,8 @@ version (`0.MINOR.PATCH`).
 
 ### Changed
 
+- The footer shortcut hint was replaced by a contextual command bar with
+  clickable buttons; global actions stay first so they survive narrow widths.
 - PSS MIX follows the active theme again, with a test that its four colours
   stay distinct. The bar is 16 cells wide and keeps at least one cell per
   nonzero category; its footer legend only appears in the process view.

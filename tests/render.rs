@@ -738,6 +738,138 @@ fn selected_row_is_tinted_without_losing_semantic_colours() {
 }
 
 #[test]
+fn mouse_selects_rows_scrolls_and_clicks_footer_buttons() {
+    use mtop::app::{FooterAction, MouseTarget};
+    use ratatui::crossterm::event::{
+        KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    };
+
+    let click = |x: u16, y: u16| MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: x,
+        row: y,
+        modifiers: KeyModifiers::NONE,
+    };
+    let wheel = |down: bool| MouseEvent {
+        kind: if down {
+            MouseEventKind::ScrollDown
+        } else {
+            MouseEventKind::ScrollUp
+        },
+        column: 10,
+        row: 10,
+        modifiers: KeyModifiers::NONE,
+    };
+
+    let mut app = App::new(None);
+    app.on_snapshot(snapshot());
+    let _ = render(&mut app);
+
+    // First click selects; a second click on the same row activates it.
+    let row = app
+        .hits
+        .iter()
+        .find(|hit| matches!(hit.target, MouseTarget::Row(2)))
+        .expect("row hit")
+        .rect;
+    assert!(!app.on_mouse(click(row.x + 1, row.y)));
+    assert_eq!(app.sel, 2);
+    assert!(!app.on_mouse(click(row.x + 1, row.y)));
+    assert!(app.detail, "second click should open the detail page");
+
+    app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    app.detail = false;
+    let _ = render(&mut app);
+    let before = app.sel;
+    app.on_mouse(wheel(true));
+    assert!(app.sel > before, "wheel did not move the selection");
+
+    // Footer help button opens the overlay; the wheel scrolls it and a click
+    // dismisses it.
+    let help = app
+        .hits
+        .iter()
+        .find(|hit| matches!(hit.target, MouseTarget::Button(FooterAction::Help)))
+        .expect("help button hit")
+        .rect;
+    app.on_mouse(click(help.x + 1, help.y));
+    assert!(app.help.is_some());
+    let _ = render(&mut app);
+    let before = app.help.as_ref().unwrap().scroll;
+    app.on_mouse(wheel(true));
+    assert!(app.help.as_ref().unwrap().scroll > before);
+
+    // Clicks inside the overlay keep it open; clicks outside dismiss it.
+    let area = app
+        .hits
+        .iter()
+        .find(|hit| matches!(hit.target, MouseTarget::HelpArea))
+        .expect("help area hit")
+        .rect;
+    app.on_mouse(click(area.x + 2, area.y + 2));
+    assert!(app.help.is_some());
+    app.on_mouse(click(1, 1));
+    assert!(app.help.is_none());
+
+    // Footer view/sort buttons dispatch the same actions as Tab/s.
+    let _ = render(&mut app);
+    let view = app
+        .hits
+        .iter()
+        .find(|hit| matches!(hit.target, MouseTarget::Button(FooterAction::View)))
+        .expect("view button hit")
+        .rect;
+    app.on_mouse(click(view.x + 1, view.y));
+    assert_eq!(app.view, mtop::app::View::Cgroups);
+    let _ = render(&mut app);
+    let sort_before = app.cgroup_sort;
+    let sort = app
+        .hits
+        .iter()
+        .find(|hit| matches!(hit.target, MouseTarget::Button(FooterAction::Sort)))
+        .expect("sort button hit")
+        .rect;
+    app.on_mouse(click(sort.x + 1, sort.y));
+    assert_ne!(app.cgroup_sort, sort_before);
+
+    // Quit is a real button, not a hint.
+    let _ = render(&mut app);
+    let quit = app
+        .hits
+        .iter()
+        .find(|hit| matches!(hit.target, MouseTarget::Button(FooterAction::Quit)))
+        .expect("quit button hit")
+        .rect;
+    assert!(app.on_mouse(click(quit.x + 1, quit.y)));
+}
+
+#[test]
+fn mouse_click_selects_a_treemap_tile() {
+    use mtop::app::{MouseTarget, View};
+    use ratatui::crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+
+    let mut app = App::new(None);
+    app.on_snapshot(snapshot());
+    app.view = View::Apps;
+    let mut term = Terminal::new(TestBackend::new(120, 30)).unwrap();
+    term.draw(|f| mtop::ui::draw(f, &mut app)).unwrap();
+    let tile = app
+        .hits
+        .iter()
+        .find(|hit| matches!(hit.target, MouseTarget::Tile(1)))
+        .expect("tile hit")
+        .rect;
+    let click = MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: tile.x + 1,
+        row: tile.y + 1,
+        modifiers: KeyModifiers::NONE,
+    };
+    assert!(!app.on_mouse(click));
+    assert_eq!(app.app_sel, 1);
+}
+
+#[test]
 fn help_overlay_is_per_page_and_bilingual() {
     use mtop::app::View;
     use mtop::i18n::Lang;
@@ -837,7 +969,7 @@ fn help_scroll_is_clamped_by_the_renderer() {
         text.push('\n');
     }
     assert!(
-        text.contains("MemTotal"),
+        text.contains("avail = MemAvailable"),
         "scrolling lost the help body:\n{text}"
     );
 }

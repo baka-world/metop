@@ -3,7 +3,11 @@ use std::collections::{HashMap, VecDeque};
 use std::time::Duration;
 
 use ratatui::DefaultTerminal;
-use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use ratatui::crossterm::event::{
+    self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent,
+    MouseEventKind,
+};
+use ratatui::layout::Rect;
 use ratatui::widgets::TableState;
 
 use crate::apps::AppGroup;
@@ -118,6 +122,36 @@ pub struct HelpState {
     pub scroll: u16,
 }
 
+/// A clickable footer action.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FooterAction {
+    View,
+    Sort,
+    Reverse,
+    Filter,
+    Enter,
+    Back,
+    Theme,
+    Lang,
+    Help,
+    Quit,
+}
+
+/// What a mouse hit region refers to.
+#[derive(Clone, Copy, Debug)]
+pub enum MouseTarget {
+    Row(usize),
+    Tile(usize),
+    Button(FooterAction),
+    HelpArea,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Hit {
+    pub rect: Rect,
+    pub target: MouseTarget,
+}
+
 pub struct App {
     pub view: View,
     /// Active built-in theme; `t` cycles it.
@@ -128,6 +162,8 @@ pub struct App {
     pub lang: Lang,
     /// Open help overlay, if any.
     pub help: Option<HelpState>,
+    /// Click targets recorded by the last draw.
+    pub hits: Vec<Hit>,
     pub sort: SortKey,
     pub cgroup_sort: CgroupSort,
     pub cgroup_sel: usize,
@@ -186,6 +222,7 @@ impl App {
             support: ColorSupport::TrueColor,
             lang: Lang::En,
             help: None,
+            hits: Vec::new(),
             sort: SortKey::Rss,
             cgroup_sort: CgroupSort::Current,
             cgroup_sel: 0,
@@ -538,6 +575,232 @@ impl App {
         }
     }
 
+    fn cycle_view(&mut self) {
+        self.view = match self.view {
+            View::Procs => View::Cgroups,
+            View::Cgroups => View::Apps,
+            View::Apps => View::Procs,
+        };
+        self.detail = false;
+        self.drill = None;
+        self.editing = false;
+    }
+
+    fn cycle_sort(&mut self) {
+        if self.view == View::Apps {
+            self.app_metric = self.app_metric.next();
+            self.app_sel = 0;
+        } else if self.view == View::Cgroups {
+            self.cgroup_sort = self.cgroup_sort.next();
+            self.cgroup_sel = 0;
+        } else {
+            self.sort = self.sort.next();
+            self.sel = 0;
+        }
+    }
+
+    fn start_filter(&mut self) {
+        self.editing = true;
+        self.editing_detail = self.detail;
+        self.edit_buf = if self.detail {
+            self.detail_filter.clone()
+        } else {
+            self.filter.clone()
+        };
+    }
+
+    fn toggle_reverse(&mut self) {
+        self.desc = !self.desc;
+    }
+
+    fn toggle_theme(&mut self) {
+        self.theme = self.theme.next().rendered(self.support);
+    }
+
+    fn toggle_lang(&mut self) {
+        self.lang = self.lang.toggle();
+    }
+
+    fn open_help(&mut self) {
+        self.help = Some(HelpState {
+            page: self.help_page(),
+            scroll: 0,
+        });
+    }
+
+    fn enter_action(&mut self) {
+        if self.view == View::Apps {
+            let target = self
+                .selected_app()
+                .filter(|g| !g.synthetic)
+                .map(|g| (g.name.clone(), g.pids.clone()));
+            if let Some((name, pids)) = target {
+                self.pid_filter = Some(pids.into_iter().collect());
+                self.pid_filter_name = Some(name);
+                self.view = View::Procs;
+                self.sel = 0;
+                self.detail = false;
+            }
+        } else if self.view == View::Cgroups {
+            if self.drill.is_none()
+                && let Some(path) = self
+                    .visible_cgroups()
+                    .get(self.cgroup_sel)
+                    .map(|c| c.path.clone())
+            {
+                self.drill = Some(path);
+                self.drill_sel = 0;
+            }
+        } else if self.detail {
+            self.toggle_expand();
+        } else if self.selected_pid().is_some() {
+            self.detail = true;
+            self.detail_sel = 0;
+        }
+    }
+
+    fn escape_action(&mut self) {
+        if self.pid_filter.is_some() {
+            self.pid_filter = None;
+            self.pid_filter_name = None;
+            self.sel = 0;
+        } else if self.view == View::Cgroups && self.drill.is_some() {
+            self.drill = None;
+            self.drill_sel = 0;
+        } else if self.detail && !self.detail_filter.is_empty() {
+            self.detail_filter.clear();
+            self.detail_sel = 0;
+        } else if self.detail {
+            self.detail = false;
+            self.detail_sel = 0;
+        } else if !self.filter.is_empty() {
+            self.filter.clear();
+            self.sel = 0;
+        }
+    }
+
+    fn click_row(&mut self, index: usize) {
+        match self.view {
+            View::Procs if self.detail => {
+                if self.detail_sel == index {
+                    self.enter_action();
+                } else {
+                    self.detail_sel = index;
+                }
+            }
+            View::Procs => {
+                if self.sel == index {
+                    self.enter_action();
+                } else {
+                    self.sel = index;
+                }
+            }
+            View::Cgroups if self.drill.is_some() => {
+                self.drill_sel = index;
+            }
+            View::Cgroups => {
+                if self.cgroup_sel == index {
+                    self.enter_action();
+                } else {
+                    self.cgroup_sel = index;
+                }
+            }
+            View::Apps => {
+                if self.app_sel == index {
+                    self.enter_action();
+                } else {
+                    self.app_sel = index;
+                }
+            }
+        }
+    }
+
+    fn click_tile(&mut self, index: usize) {
+        if self.app_sel == index {
+            self.enter_action();
+        } else {
+            self.app_sel = index;
+        }
+    }
+
+    fn footer_action(&mut self, action: FooterAction) -> bool {
+        match action {
+            FooterAction::Quit => return true,
+            FooterAction::Help => self.open_help(),
+            FooterAction::Lang => self.toggle_lang(),
+            FooterAction::Theme => self.toggle_theme(),
+            FooterAction::View => self.cycle_view(),
+            FooterAction::Sort => self.cycle_sort(),
+            FooterAction::Reverse => self.toggle_reverse(),
+            FooterAction::Filter => self.start_filter(),
+            FooterAction::Enter => self.enter_action(),
+            FooterAction::Back => self.escape_action(),
+        }
+        self.clamp();
+        false
+    }
+
+    pub fn on_mouse(&mut self, mouse: MouseEvent) -> bool {
+        if self.editing {
+            return false;
+        }
+        if self.help.is_some() {
+            match mouse.kind {
+                MouseEventKind::ScrollDown => self.help_scroll(3),
+                MouseEventKind::ScrollUp => self.help_scroll(-3),
+                MouseEventKind::Down(MouseButton::Left) => {
+                    let inside = self.hits.iter().any(|hit| {
+                        matches!(hit.target, MouseTarget::HelpArea)
+                            && mouse.column >= hit.rect.x
+                            && mouse.column < hit.rect.x.saturating_add(hit.rect.width)
+                            && mouse.row >= hit.rect.y
+                            && mouse.row < hit.rect.y.saturating_add(hit.rect.height)
+                    });
+                    if !inside {
+                        self.help = None;
+                    }
+                }
+                _ => {}
+            }
+            return false;
+        }
+        match mouse.kind {
+            MouseEventKind::ScrollDown => self.move_sel(3),
+            MouseEventKind::ScrollUp => self.move_sel(-3),
+            MouseEventKind::Down(MouseButton::Left) => {
+                let target = self
+                    .hits
+                    .iter()
+                    .rev()
+                    .find(|hit| {
+                        let r = hit.rect;
+                        mouse.column >= r.x
+                            && mouse.column < r.x.saturating_add(r.width)
+                            && mouse.row >= r.y
+                            && mouse.row < r.y.saturating_add(r.height)
+                    })
+                    .map(|hit| hit.target);
+                match target {
+                    Some(MouseTarget::Row(index)) => self.click_row(index),
+                    Some(MouseTarget::Tile(index)) => self.click_tile(index),
+                    Some(MouseTarget::Button(action)) => return self.footer_action(action),
+                    Some(MouseTarget::HelpArea) | None => return false,
+                }
+            }
+            _ => return false,
+        }
+        self.clamp();
+        false
+    }
+
+    pub fn handle_event(&mut self, event: Event) -> bool {
+        match event {
+            Event::Key(key) => self.on_key(key),
+            Event::Mouse(mouse) => self.on_mouse(mouse),
+            _ => false,
+        }
+    }
+
     /// Returns true when the app should exit.
     pub fn on_key(&mut self, key: KeyEvent) -> bool {
         if key.kind != KeyEventKind::Press {
@@ -572,23 +835,9 @@ impl App {
         }
         match key.code {
             KeyCode::Char('q') => return true,
-            KeyCode::Char('?') => {
-                self.help = Some(HelpState {
-                    page: self.help_page(),
-                    scroll: 0,
-                });
-            }
+            KeyCode::Char('?') => self.open_help(),
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => return true,
-            KeyCode::Tab => {
-                self.view = match self.view {
-                    View::Procs => View::Cgroups,
-                    View::Cgroups => View::Apps,
-                    View::Apps => View::Procs,
-                };
-                self.detail = false;
-                self.drill = None;
-                self.editing = false;
-            }
+            KeyCode::Tab => self.cycle_view(),
             KeyCode::Char('j') | KeyCode::Down => self.move_sel(1),
             KeyCode::Char('k') | KeyCode::Up => self.move_sel(-1),
             KeyCode::PageDown => self.move_sel(10),
@@ -606,63 +855,12 @@ impl App {
                 self.drill_sel = usize::MAX / 2;
                 self.app_sel = usize::MAX / 2;
             }
-            KeyCode::Char('s') => {
-                if self.view == View::Apps {
-                    self.app_metric = self.app_metric.next();
-                    self.app_sel = 0;
-                } else if self.view == View::Cgroups {
-                    self.cgroup_sort = self.cgroup_sort.next();
-                    self.cgroup_sel = 0;
-                } else {
-                    self.sort = self.sort.next();
-                    self.sel = 0;
-                }
-            }
-            KeyCode::Char('r') => self.desc = !self.desc,
-            KeyCode::Char('t') => self.theme = self.theme.next().rendered(self.support),
-            KeyCode::Char('l') => self.lang = self.lang.toggle(),
-            KeyCode::Char('f') => {
-                self.editing = true;
-                self.editing_detail = self.detail;
-                self.edit_buf = if self.detail {
-                    self.detail_filter.clone()
-                } else {
-                    self.filter.clone()
-                };
-            }
-            KeyCode::Enter | KeyCode::Char(' ') => {
-                if self.view == View::Apps {
-                    let target = self
-                        .selected_app()
-                        .filter(|g| !g.synthetic)
-                        .map(|g| (g.name.clone(), g.pids.clone()));
-                    if let Some((name, pids)) = target {
-                        self.pid_filter = Some(pids.into_iter().collect());
-                        self.pid_filter_name = Some(name);
-                        self.view = View::Procs;
-                        self.sel = 0;
-                        self.detail = false;
-                    }
-                } else if self.view == View::Cgroups {
-                    // Enter opens the process list of the selected subtree.
-                    if self.drill.is_none()
-                        && let Some(path) = self
-                            .visible_cgroups()
-                            .get(self.cgroup_sel)
-                            .map(|c| c.path.clone())
-                    {
-                        self.drill = Some(path);
-                        self.drill_sel = 0;
-                    }
-                } else if self.detail {
-                    // Enter expands a mapping into its individual VMAs; Esc is
-                    // the way back (standard tree navigation).
-                    self.toggle_expand();
-                } else if self.selected_pid().is_some() {
-                    self.detail = true;
-                    self.detail_sel = 0;
-                }
-            }
+            KeyCode::Char('s') => self.cycle_sort(),
+            KeyCode::Char('r') => self.toggle_reverse(),
+            KeyCode::Char('t') => self.toggle_theme(),
+            KeyCode::Char('l') => self.toggle_lang(),
+            KeyCode::Char('f') => self.start_filter(),
+            KeyCode::Enter | KeyCode::Char(' ') => self.enter_action(),
             KeyCode::Char('z') if self.detail => self.expanded.clear(),
             KeyCode::Char('Z') if self.detail => {
                 if let Some(d) = self.snap.as_ref().and_then(|s| s.detail.as_ref()) {
@@ -670,25 +868,7 @@ impl App {
                         .extend(d.report.groups.iter().map(|g| g.label.clone()));
                 }
             }
-            KeyCode::Esc => {
-                if self.pid_filter.is_some() {
-                    self.pid_filter = None;
-                    self.pid_filter_name = None;
-                    self.sel = 0;
-                } else if self.view == View::Cgroups && self.drill.is_some() {
-                    self.drill = None;
-                    self.drill_sel = 0;
-                } else if self.detail && !self.detail_filter.is_empty() {
-                    self.detail_filter.clear();
-                    self.detail_sel = 0;
-                } else if self.detail {
-                    self.detail = false;
-                    self.detail_sel = 0;
-                } else if !self.filter.is_empty() {
-                    self.filter.clear();
-                    self.sel = 0;
-                }
-            }
+            KeyCode::Esc => self.escape_action(),
             _ => {}
         }
         self.clamp();
@@ -776,15 +956,11 @@ impl App {
                 let _ = tx.send(focus);
             }
             if event::poll(Duration::from_millis(250))? {
-                if let Event::Key(key) = event::read()?
-                    && app.on_key(key)
-                {
+                if app.handle_event(event::read()?) {
                     return Ok(());
                 }
                 while event::poll(Duration::ZERO)? {
-                    if let Event::Key(key) = event::read()?
-                        && app.on_key(key)
-                    {
+                    if app.handle_event(event::read()?) {
                         return Ok(());
                     }
                 }
