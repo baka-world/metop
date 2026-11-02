@@ -539,22 +539,25 @@ fn apps_view(f: &mut Frame, area: Rect, app: &mut App) {
             continue;
         }
         let selected = i == app.app_sel;
-        let bg = if selected {
-            p.highlight_bg
+        let fill = p.treemap[i % p.treemap.len()];
+        // Invert the selected tile instead of reusing the table highlight
+        // colour: `highlight_bg` can match a neighbouring tile's fill (the
+        // light theme's blue was almost identical to its first tile), which
+        // made the selection indistinguishable. Swapping the tile's own
+        // foreground and fill is always distinct and keeps the same contrast.
+        let (bg, fg) = if selected {
+            (p.tile_fg, fill)
         } else {
-            p.treemap[i % p.treemap.len()]
+            (fill, p.tile_fg)
         };
         let buf = f.buffer_mut();
         buf.set_style(*r, Style::new().bg(bg));
         if r.width >= 8 && r.height >= 2 {
             let name = truncate(&g.name, (r.width as usize).saturating_sub(2));
             let style = if selected {
-                Style::new()
-                    .bg(bg)
-                    .fg(p.tile_fg)
-                    .add_modifier(Modifier::BOLD)
+                Style::new().bg(bg).fg(fg).add_modifier(Modifier::BOLD)
             } else {
-                Style::new().bg(bg).fg(p.tile_fg)
+                Style::new().bg(bg).fg(fg)
             };
             buf.set_stringn(
                 r.x + 1,
@@ -571,7 +574,7 @@ fn apps_view(f: &mut Frame, area: Rect, app: &mut App) {
                 r.y + 1,
                 sub,
                 (r.width as usize).saturating_sub(2),
-                Style::new().bg(bg).fg(p.tile_fg),
+                Style::new().bg(bg).fg(fg),
             );
         }
     }
@@ -596,7 +599,18 @@ fn apps_list(f: &mut Frame, area: Rect, app: &mut App, apps: &[crate::apps::AppG
                 Cell::from(format!("{:>9}", fmt_kb(app.app_metric.value(g)))),
                 Cell::from(format!("{:>5}", g.procs)),
                 Cell::from(format!("{:>9}", fmt_kb(g.pss_kb))),
-                bar_cell(frac, p.treemap[i % p.treemap.len()], 10, p.dim),
+                bar_cell(
+                    frac,
+                    if i == app.app_sel {
+                        // A treemap fill can match the row highlight (notably
+                        // in the light theme); the tile foreground cannot.
+                        p.tile_fg
+                    } else {
+                        p.treemap[i % p.treemap.len()]
+                    },
+                    10,
+                    p.dim,
+                ),
             ])
         })
         .collect();

@@ -608,6 +608,21 @@ mod tests {
     }
 
     #[test]
+    fn every_theme_has_distinct_fills_and_no_tile_fg_collision() {
+        for theme in Theme::ALL {
+            let palette = theme.palette;
+            let distinct: std::collections::HashSet<Color> =
+                palette.treemap.iter().copied().collect();
+            assert_eq!(distinct.len(), 6, "{} reuses a tile fill", theme.name);
+            assert!(
+                !distinct.contains(&palette.tile_fg),
+                "{} tile_fg is also a tile fill",
+                theme.name
+            );
+        }
+    }
+
+    #[test]
     fn ansi16_uses_no_rgb_or_indexed_colours() {
         let p = Theme::ANSI16.palette;
         let slots = [
