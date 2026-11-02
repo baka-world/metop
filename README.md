@@ -24,7 +24,7 @@ RSS sums to roughly **2.2×** the real number system-wide (2.4× for Chrome). mt
 
 ## Features
 
-- **Process view** — RSS / PSS / USS / PSS÷RSS / Δ·s⁻¹, share bars and a fixed-palette PSS-composition bar with a footer legend.
+- **Process view** — RSS / PSS / USS / PSS÷RSS / Δ·s⁻¹, share bars and a theme-coloured PSS-composition bar (legend in the process view).
 - **VMA detail** — aggregate by mapping, then expand one mapping into its individual VMAs (address range, perms, PSS/USS/anon/swap/size).
 - **cgroup v2 view** — `memory.current` / `memory.stat` / `memory.max` / `memory.events`, PSI (`some`/`full`), OOM deltas, and drill-down into a subtree's processes.
 - **App treemap** — processes grouped into applications (systemd `app-*.scope` → exe → comm), area ∝ PSS, long tail folded into `others`.

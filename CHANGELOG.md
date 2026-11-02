@@ -20,10 +20,11 @@ version (`0.MINOR.PATCH`).
 
 ### Changed
 
-- PSS MIX now uses a fixed, colour-blind-safe palette (Okabe–Ito: sky blue
-  anon, green file, orange shmem, purple swap) instead of theme colours, so the
-  four categories mean the same thing in every theme. The bar is 16 cells wide,
-  keeps at least one cell per nonzero category, and the footer shows a legend.
+- PSS MIX follows the active theme again, with a test that its four colours
+  stay distinct. The bar is 16 cells wide and keeps at least one cell per
+  nonzero category; its footer legend only appears in the process view.
+- Dark themes' app treemap fills now use their bright palette colours instead
+  of heavily shaded variants, so the apps view matches the rest of the theme.
 
 ### Fixed
 

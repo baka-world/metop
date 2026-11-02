@@ -233,11 +233,11 @@ impl T {
     pub fn procs_footer(&self, sort: &str) -> String {
         if self.is_zh() {
             format!(
-                " q 退出 │ Tab cgroups │ j/k 移动 │ g/G 首尾 │ s 排序 ({sort}) │ r 反向 │ f 过滤 │ Enter 映射详情 │ t 主题 │ l 语言 │ ? 帮助"
+                " q 退出 │ Tab │ j/k │ g/G │ s 排序 ({sort}) │ r 反向 │ f 过滤 │ Enter 详情 │ t 主题 │ l 语言 │ ? 帮助"
             )
         } else {
             format!(
-                " q quit │ Tab cgroups │ j/k move │ g/G ends │ s sort ({sort}) │ r reverse │ f filter │ Enter vma detail │ t theme │ l lang │ ? help"
+                " q quit │ Tab │ j/k │ g/G │ s sort ({sort}) │ r rev │ f filter │ Enter detail │ t theme │ l lang │ ? help"
             )
         }
     }
@@ -257,11 +257,11 @@ impl T {
     pub fn apps_footer(&self, metric: &str) -> String {
         if self.is_zh() {
             format!(
-                " q 退出 │ Tab 视图 │ j/k 选择 │ Enter 下钻进程 │ s 指标 ({metric}) │ f 过滤 │ Esc 清除 │ t 主题 │ l 语言 │ ? 帮助"
+                " q 退出 │ Tab │ j/k │ Enter 下钻 │ s 指标 ({metric}) │ f 过滤 │ Esc 清除 │ t 主题 │ l 语言 │ ? 帮助"
             )
         } else {
             format!(
-                " q quit │ Tab views │ j/k select │ Enter drill into procs │ s metric ({metric}) │ f filter │ Esc clear │ t theme │ l lang │ ? help"
+                " q quit │ Tab │ j/k │ Enter drill │ s metric ({metric}) │ f filter │ Esc clear │ t theme │ l lang │ ? help"
             )
         }
     }
@@ -291,9 +291,9 @@ impl T {
 
     pub fn theme_line(&self, theme: &str) -> String {
         if self.is_zh() {
-            format!(" 主题: {theme} · t 切换 · 构成 ")
+            format!(" 主题: {theme} · t 切换")
         } else {
-            format!(" theme: {theme} · t switch · mix ")
+            format!(" theme: {theme} · t switch")
         }
     }
 
