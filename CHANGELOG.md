@@ -8,6 +8,8 @@ version (`0.MINOR.PATCH`).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-01
+
 ### Added
 
 - Mouse support: click table rows and treemap tiles (click again to open,
@@ -69,6 +71,7 @@ version (`0.MINOR.PATCH`).
   accounting with PSI/OOM tracking, app treemap, `--json`/`--diff` scripting,
   and `.deb`/`.rpm`/static-musl packaging.
 
-[Unreleased]: https://github.com/baka-world/mtop/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/baka-world/mtop/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/baka-world/mtop/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/baka-world/mtop/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/baka-world/mtop/releases/tag/v0.1.0
