@@ -11,7 +11,7 @@ use crate::procfs::fmt_kb;
 use crate::theme::Palette;
 
 const SHARE_W: usize = 6;
-const MIX_W: usize = 12;
+const MIX_W: usize = 16;
 
 /// Default-theme highlight background, kept public for tests and callers that
 /// need the built-in value.
@@ -275,6 +275,43 @@ fn bar_cell(frac: f64, color: Color, width: usize, empty: Color) -> Cell<'static
     Cell::from(Text::from(Line::from(styled_span(filled, color)))).style(Style::new().fg(empty))
 }
 
+/// Split like [`segments`], but give every nonzero category at least one cell
+/// so a small shmem/swap segment cannot disappear through rounding.
+fn segments_min1(values: &[u64], width: usize) -> Vec<usize> {
+    let mut out = vec![0usize; values.len()];
+    let nonzero: Vec<usize> = values
+        .iter()
+        .enumerate()
+        .filter(|(_, value)| **value > 0)
+        .map(|(index, _)| index)
+        .collect();
+    if nonzero.is_empty() {
+        return out;
+    }
+    // More categories than cells: fall back to plain proportional rounding.
+    if nonzero.len() > width {
+        return segments(values, width);
+    }
+    for &index in &nonzero {
+        out[index] = 1;
+    }
+    let total: u128 = values.iter().map(|value| *value as u128).sum();
+    let remaining = width - nonzero.len();
+    let mut used = 0usize;
+    for &index in &nonzero {
+        let extra = (values[index] as u128 * remaining as u128 / total) as usize;
+        out[index] += extra;
+        used += extra;
+    }
+    let largest = nonzero
+        .iter()
+        .copied()
+        .max_by_key(|&index| values[index])
+        .expect("at least one nonzero value");
+    out[largest] += remaining - used;
+    out
+}
+
 /// Split `width` cells across `values` proportionally; the last segment takes
 /// the rounding remainder so the widths always sum to exactly `width`.
 pub fn segments(values: &[u64], width: usize) -> Vec<usize> {
@@ -299,7 +336,7 @@ pub fn segments(values: &[u64], width: usize) -> Vec<usize> {
 }
 
 fn segmented_cell(values: &[u64], colors: &[Color]) -> Cell<'static> {
-    let widths = segments(values, MIX_W);
+    let widths = segments_min1(values, MIX_W);
     let mut spans: Vec<Span<'static>> = Vec::with_capacity(values.len() + 1);
     let mut used = 0;
     for (w, color) in widths.iter().zip(colors) {
@@ -1127,15 +1164,20 @@ fn footer(f: &mut Frame, area: Rect, app: &App) {
             Style::new().fg(p.dim),
         ))
     };
-    let theme_line = Line::from(Span::styled(
-        format!(
-            " theme: {} · t switch · {} built-in ",
-            app.theme.name,
-            crate::theme::Theme::ALL.len()
-        ),
+    let mut legend = vec![Span::styled(
+        format!(" theme: {} · t switch · mix ", app.theme.name),
         Style::new().fg(p.dim),
-    ));
-    f.render_widget(Paragraph::new(vec![line, theme_line]), area);
+    )];
+    for (color, label) in [
+        (p.anon, "anon"),
+        (p.file, "file"),
+        (p.shmem, "shmem"),
+        (p.swap, "swap"),
+    ] {
+        legend.push(Span::styled("█", Style::new().fg(color)));
+        legend.push(Span::styled(format!("{label} "), Style::new().fg(p.dim)));
+    }
+    f.render_widget(Paragraph::new(vec![line, Line::from(legend)]), area);
 }
 
 #[cfg(test)]
@@ -1174,6 +1216,15 @@ mod tests {
         assert_eq!(super::delta_text(512), "+  512k");
         assert_eq!(super::delta_text(1024), "+  1.0M");
         assert_eq!(super::delta_text(4096), "+  4.0M");
+    }
+
+    #[test]
+    fn nonzero_mix_segments_never_round_to_zero() {
+        let got = super::segments_min1(&[1000, 1, 0, 1], 8);
+        assert_eq!(got.iter().sum::<usize>(), 8);
+        assert!(got[1] > 0 && got[3] > 0, "small segments vanished: {got:?}");
+        assert_eq!(got[2], 0, "empty segment grew: {got:?}");
+        assert_eq!(super::segments_min1(&[0, 0, 0, 0], 8), vec![0; 4]);
     }
 
     #[test]

@@ -65,6 +65,24 @@ impl ColorSupport {
     }
 }
 
+// PSS composition colours are fixed rather than themed: anon/file/shmem/swap
+// must mean the same thing in every theme. Okabe-Ito hues, with a darker
+// variant for light terminals and ANSI names for 16-colour terminals.
+const MIX_ANON_DARK: Color = rgb(0x56, 0xb4, 0xe9);
+const MIX_FILE_DARK: Color = rgb(0x00, 0x9e, 0x73);
+const MIX_SHMEM_DARK: Color = rgb(0xe6, 0x9f, 0x00);
+const MIX_SWAP_DARK: Color = rgb(0xcc, 0x79, 0xa7);
+
+const MIX_ANON_LIGHT: Color = rgb(0x00, 0x72, 0xb2);
+const MIX_FILE_LIGHT: Color = rgb(0x00, 0x7a, 0x5e);
+const MIX_SHMEM_LIGHT: Color = rgb(0x9a, 0x5b, 0x00);
+const MIX_SWAP_LIGHT: Color = rgb(0x8e, 0x45, 0x85);
+
+const MIX_ANON_ANSI: Color = Color::Blue;
+const MIX_FILE_ANSI: Color = Color::Cyan;
+const MIX_SHMEM_ANSI: Color = Color::Yellow;
+const MIX_SWAP_ANSI: Color = Color::Magenta;
+
 /// Semantic colours used by the whole UI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Palette {
@@ -89,10 +107,13 @@ pub struct Palette {
     pub crit: Color,
     /// Input prompt and cursor.
     pub focus: Color,
-    /// PSS mix / composition segments: anonymous, file-backed, shmem, swap.
+    /// PSS mix: anonymous pages. Fixed across themes (see `MIX_*`).
     pub anon: Color,
+    /// PSS mix: file-backed pages. Fixed across themes.
     pub file: Color,
+    /// PSS mix: shared-memory pages. Fixed across themes.
     pub shmem: Color,
+    /// PSS mix: PSS-weighted swapped-out pages. Fixed across themes.
     pub swap: Color,
     /// Swap-PSS shown numerically in the detail summary.
     pub swap_pss: Color,
@@ -114,11 +135,11 @@ impl Palette {
         warn: Color::Yellow,
         crit: Color::Red,
         focus: Color::Yellow,
-        anon: Color::Magenta,
-        file: Color::Cyan,
-        shmem: Color::Yellow,
-        swap: Color::LightBlue,
-        swap_pss: Color::Blue,
+        anon: MIX_ANON_DARK,
+        file: MIX_FILE_DARK,
+        shmem: MIX_SHMEM_DARK,
+        swap: MIX_SWAP_DARK,
+        swap_pss: MIX_SWAP_DARK,
         tile_fg: Color::Gray,
         treemap: [
             Color::Rgb(46, 64, 94),
@@ -145,6 +166,25 @@ impl Palette {
 
     /// Convert every RGB slot to the terminal's colour depth.
     pub fn rendered(self, support: ColorSupport) -> Self {
+        let (anon, file, shmem, swap, swap_pss) = if support == ColorSupport::Ansi16 {
+            // Nearest-RGB would map the green/blue categories onto similar
+            // ANSI hues; use the fixed 16-colour set instead.
+            (
+                MIX_ANON_ANSI,
+                MIX_FILE_ANSI,
+                MIX_SHMEM_ANSI,
+                MIX_SWAP_ANSI,
+                MIX_SWAP_ANSI,
+            )
+        } else {
+            (
+                render_color(self.anon, support),
+                render_color(self.file, support),
+                render_color(self.shmem, support),
+                render_color(self.swap, support),
+                render_color(self.swap_pss, support),
+            )
+        };
         Self {
             dim: render_color(self.dim, support),
             dim_selected: render_color(self.dim_selected, support),
@@ -155,11 +195,11 @@ impl Palette {
             warn: render_color(self.warn, support),
             crit: render_color(self.crit, support),
             focus: render_color(self.focus, support),
-            anon: render_color(self.anon, support),
-            file: render_color(self.file, support),
-            shmem: render_color(self.shmem, support),
-            swap: render_color(self.swap, support),
-            swap_pss: render_color(self.swap_pss, support),
+            anon,
+            file,
+            shmem,
+            swap,
+            swap_pss,
             tile_fg: render_color(self.tile_fg, support),
             treemap: self.treemap.map(|color| render_color(color, support)),
         }
@@ -261,11 +301,11 @@ impl Theme {
             warn: rgb(0xcb, 0xc0, 0x6c),
             crit: rgb(0xdc, 0x4c, 0x4c),
             focus: rgb(0xb5, 0x40, 0x40),
-            anon: rgb(0xff, 0x47, 0x69),
-            file: rgb(0x26, 0xc5, 0xff),
-            shmem: rgb(0xff, 0xb8, 0x14),
-            swap: rgb(0xb0, 0xa9, 0xde),
-            swap_pss: rgb(0xb0, 0xa9, 0xde),
+            anon: MIX_ANON_DARK,
+            file: MIX_FILE_DARK,
+            shmem: MIX_SHMEM_DARK,
+            swap: MIX_SWAP_DARK,
+            swap_pss: MIX_SWAP_DARK,
             tile_fg: rgb(0xcc, 0xcc, 0xcc),
             treemap: [
                 rgb(0x59, 0x2b, 0x26),
@@ -293,11 +333,11 @@ impl Theme {
             warn: rgb(0xf1, 0xfa, 0x8c),
             crit: rgb(0xff, 0x55, 0x55),
             focus: rgb(0x62, 0x72, 0xa4),
-            anon: rgb(0x0d, 0xfa, 0x49),
-            file: rgb(0x26, 0xd7, 0xfd),
-            shmem: rgb(0xff, 0x9c, 0x33),
-            swap: rgb(0x8b, 0xe9, 0xfd),
-            swap_pss: rgb(0x8b, 0xe9, 0xfd),
+            anon: MIX_ANON_DARK,
+            file: MIX_FILE_DARK,
+            shmem: MIX_SHMEM_DARK,
+            swap: MIX_SWAP_DARK,
+            swap_pss: MIX_SWAP_DARK,
             tile_fg: rgb(0xf8, 0xf8, 0xf2),
             treemap: [
                 shade((0x50, 0xfa, 0x7b), 40),
@@ -325,11 +365,11 @@ impl Theme {
             warn: rgb(0xfa, 0xbd, 0x2f),
             crit: rgb(0xfb, 0x49, 0x34),
             focus: rgb(0xd7, 0x99, 0x21),
-            anon: rgb(0xcc, 0x24, 0x1d),
-            file: rgb(0x83, 0xa5, 0x98),
-            shmem: rgb(0xfa, 0xbd, 0x2f),
-            swap: rgb(0xa3, 0xa8, 0xf7),
-            swap_pss: rgb(0xa3, 0xa8, 0xf7),
+            anon: MIX_ANON_DARK,
+            file: MIX_FILE_DARK,
+            shmem: MIX_SHMEM_DARK,
+            swap: MIX_SWAP_DARK,
+            swap_pss: MIX_SWAP_DARK,
             tile_fg: rgb(0xeb, 0xdb, 0xb2),
             treemap: [
                 shade((0xcc, 0x24, 0x1d), 60),
@@ -356,11 +396,11 @@ impl Theme {
             warn: rgb(0xdc, 0xa5, 0x61),
             crit: rgb(0xe8, 0x24, 0x24),
             focus: rgb(0xc3, 0x40, 0x43),
-            anon: rgb(0x7f, 0xb4, 0xca),
-            file: rgb(0xff, 0x9e, 0x3b),
-            shmem: rgb(0xdc, 0xa5, 0x61),
-            swap: rgb(0x95, 0x7f, 0xbb),
-            swap_pss: rgb(0x95, 0x7f, 0xbb),
+            anon: MIX_ANON_DARK,
+            file: MIX_FILE_DARK,
+            shmem: MIX_SHMEM_DARK,
+            swap: MIX_SWAP_DARK,
+            swap_pss: MIX_SWAP_DARK,
             tile_fg: rgb(0xdc, 0xd7, 0xba),
             treemap: [
                 shade((0x65, 0x85, 0x94), 45),
@@ -387,11 +427,11 @@ impl Theme {
             warn: Color::Rgb(146, 64, 14),
             crit: Color::Red,
             focus: Color::Blue,
-            anon: Color::Magenta,
-            file: Color::Blue,
-            shmem: Color::Rgb(146, 64, 14),
-            swap: Color::Cyan,
-            swap_pss: Color::Blue,
+            anon: MIX_ANON_LIGHT,
+            file: MIX_FILE_LIGHT,
+            shmem: MIX_SHMEM_LIGHT,
+            swap: MIX_SWAP_LIGHT,
+            swap_pss: MIX_SWAP_LIGHT,
             tile_fg: Color::Black,
             treemap: [
                 Color::Rgb(219, 234, 254),
@@ -418,11 +458,11 @@ impl Theme {
             warn: Color::Yellow,
             crit: Color::Red,
             focus: Color::Yellow,
-            anon: Color::Magenta,
-            file: Color::Cyan,
-            shmem: Color::Yellow,
-            swap: Color::LightBlue,
-            swap_pss: Color::Blue,
+            anon: MIX_ANON_ANSI,
+            file: MIX_FILE_ANSI,
+            shmem: MIX_SHMEM_ANSI,
+            swap: MIX_SWAP_ANSI,
+            swap_pss: MIX_SWAP_ANSI,
             tile_fg: Color::Gray,
             treemap: [
                 Color::Blue,
@@ -477,7 +517,7 @@ mod tests {
     use ratatui::style::Color;
 
     #[test]
-    fn default_theme_keeps_the_shipped_colours() {
+    fn default_theme_keeps_the_shipped_chrome_colours() {
         let p = Theme::DEFAULT.palette;
         assert_eq!(p, Palette::DEFAULT);
         assert_eq!(p.highlight_bg, Color::Rgb(38, 79, 120));
@@ -527,7 +567,6 @@ mod tests {
         assert_eq!(p.ok, Color::Rgb(0x77, 0xca, 0x9b));
         assert_eq!(p.warn, Color::Rgb(0xcb, 0xc0, 0x6c));
         assert_eq!(p.crit, Color::Rgb(0xdc, 0x4c, 0x4c));
-        assert_eq!(p.anon, Color::Rgb(0xff, 0x47, 0x69));
         assert_eq!(p.treemap[1], Color::Rgb(0x16, 0x33, 0x50));
     }
 
@@ -605,6 +644,51 @@ mod tests {
             Theme::DRACULA.rendered(super::ColorSupport::TrueColor),
             Theme::DRACULA
         );
+    }
+
+    #[test]
+    fn pss_mix_colours_are_fixed_across_themes_and_distinct() {
+        use super::{
+            MIX_ANON_ANSI, MIX_ANON_DARK, MIX_ANON_LIGHT, MIX_FILE_ANSI, MIX_FILE_DARK,
+            MIX_FILE_LIGHT, MIX_SHMEM_ANSI, MIX_SHMEM_DARK, MIX_SHMEM_LIGHT, MIX_SWAP_ANSI,
+            MIX_SWAP_DARK, MIX_SWAP_LIGHT,
+        };
+
+        let dark = [MIX_ANON_DARK, MIX_FILE_DARK, MIX_SHMEM_DARK, MIX_SWAP_DARK];
+        for theme in [
+            Theme::DEFAULT,
+            Theme::BTOP,
+            Theme::DRACULA,
+            Theme::GRUVBOX,
+            Theme::KANAGAWA,
+        ] {
+            let p = theme.palette;
+            assert_eq!([p.anon, p.file, p.shmem, p.swap], dark, "{}", theme.name);
+            assert_eq!(p.swap_pss, p.swap, "{}", theme.name);
+        }
+
+        let light = [
+            MIX_ANON_LIGHT,
+            MIX_FILE_LIGHT,
+            MIX_SHMEM_LIGHT,
+            MIX_SWAP_LIGHT,
+        ];
+        let p = Theme::LIGHT.palette;
+        assert_eq!([p.anon, p.file, p.shmem, p.swap], light);
+
+        let ansi = [MIX_ANON_ANSI, MIX_FILE_ANSI, MIX_SHMEM_ANSI, MIX_SWAP_ANSI];
+        let p = Theme::ANSI16.palette;
+        assert_eq!([p.anon, p.file, p.shmem, p.swap], ansi);
+
+        for set in [dark, light, ansi] {
+            let distinct: std::collections::HashSet<Color> = set.into_iter().collect();
+            assert_eq!(distinct.len(), 4, "mix colours collide: {set:?}");
+        }
+
+        // Even a truecolor theme must switch to the fixed ANSI set on a
+        // 16-colour terminal.
+        let p = Theme::DRACULA.rendered(super::ColorSupport::Ansi16).palette;
+        assert_eq!([p.anon, p.file, p.shmem, p.swap], ansi);
     }
 
     #[test]

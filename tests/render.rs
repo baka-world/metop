@@ -460,13 +460,23 @@ fn pss_mix_bar_has_distinct_segment_colors() {
         .collect();
 
     assert!(
-        colors.iter().any(|c| c.contains("Magenta")),
+        colors.iter().any(|c| c.contains("Rgb(86, 180, 233)")),
         "anon segment missing: {colors:?}"
     );
     assert!(
-        colors.iter().any(|c| c.contains("Cyan")),
+        colors.iter().any(|c| c.contains("Rgb(0, 158, 115)")),
         "file segment missing: {colors:?}"
     );
+}
+
+#[test]
+fn pss_mix_footer_has_a_legend() {
+    let mut app = App::new(None);
+    app.on_snapshot(snapshot());
+    let text = render(&mut app);
+    for label in ["mix", "anon", "file", "shmem", "swap"] {
+        assert!(text.contains(label), "legend missing {label}:\n{text}");
+    }
 }
 
 #[test]
