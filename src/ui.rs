@@ -1299,7 +1299,10 @@ fn footer_buttons(app: &App, t: &T) -> Vec<(String, FooterAction)> {
         buttons.push((t.pick("s Sort", "s 排序").into(), FooterAction::Sort));
         buttons.push((t.pick("r Rev", "r 反向").into(), FooterAction::Reverse));
     }
-    buttons.push((t.pick("f Filter", "f 过滤").into(), FooterAction::Filter));
+    buttons.push((
+        t.pick("/,f Filter", "/,f 过滤").into(),
+        FooterAction::Filter,
+    ));
     if !(app.view == View::Cgroups && app.drill.is_some()) {
         let label = match (app.view, app.detail) {
             (View::Apps, _) => t.pick("Enter Drill", "Enter 下钻"),

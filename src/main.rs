@@ -39,8 +39,8 @@ KEYS:
     s               cycle sort key          r       reverse order
     t               cycle colour theme      l       switch language
     ?               page help               Tab     switch view
-    f               filter process name/pid Enter   per-process VMA breakdown
-    f (detail)      filter mapping names    Enter   expand a mapping into VMAs
+    f, /            filter process name/pid Enter   per-process VMA breakdown
+    f, / (detail)   filter mapping names    Enter   expand a mapping into VMAs
     z / Z (detail)  collapse / expand all   Esc     clear filter / back
     q               quit
 ";

@@ -155,9 +155,9 @@ impl T {
 
     pub fn detail_title(&self, filter: Option<&str>) -> String {
         match (self.is_zh(), filter) {
-            (false, None) => " vm mappings by PSS  (Enter expand, Esc back, f filter) ".into(),
+            (false, None) => " vm mappings by PSS  (Enter expand, Esc back, / or f filter) ".into(),
             (false, Some(filter)) => format!(" vm mappings by PSS  filter {filter} "),
-            (true, None) => " 按 PSS 排序的映射  (Enter 展开, Esc 返回, f 过滤) ".into(),
+            (true, None) => " 按 PSS 排序的映射  (Enter 展开, Esc 返回, / 或 f 过滤) ".into(),
             (true, Some(filter)) => format!(" 按 PSS 排序的映射  过滤 {filter} "),
         }
     }
@@ -300,7 +300,7 @@ const PROCS_EN: Doc = Doc {
             heading: "Markers and keys",
             body: &[
                 "— not sampled yet; n/a unreadable (EACCES or a kernel thread); ~ PSS older than 6 s.",
-                "▸ selected row. t theme, l language, ? help.",
+                "▸ selected row. / or f filter, t theme, l language, ? help.",
                 "Mouse: click a row to select, click it again to open detail; wheel scrolls; footer buttons are clickable.",
             ],
         },
@@ -333,7 +333,7 @@ const PROCS_ZH: Doc = Doc {
             heading: "标记与按键",
             body: &[
                 "— 尚未采样；n/a 无法读取（EACCES 或内核线程）；~ PSS 超过 6 秒未更新。",
-                "▸ 当前选中行。t 主题，l 语言，? 帮助。",
+                "▸ 当前选中行。/ 或 f 过滤，t 主题，l 语言，? 帮助。",
                 "鼠标：点击行选中，再点一次打开详情；滚轮滚动；footer 按钮可点击。",
             ],
         },
@@ -357,7 +357,7 @@ const CGROUPS_EN: Doc = Doc {
             heading: "Keys",
             body: &[
                 "Enter lists the processes in the selected subtree; Esc returns.",
-                "s changes the sort (current or composition), r reverses, f filters paths.",
+                "s changes the sort (current or composition), r reverses, / or f filters paths.",
                 "l language, ? help.",
                 "Mouse: click a row to select, click it again to open the drill-down; wheel scrolls; footer buttons are clickable.",
             ],
@@ -382,7 +382,7 @@ const CGROUPS_ZH: Doc = Doc {
             heading: "按键",
             body: &[
                 "Enter 列出选中子树内的进程；Esc 返回。",
-                "s 切换排序（current 或构成），r 反向，f 过滤路径。",
+                "s 切换排序（current 或构成），r 反向，/ 或 f 过滤路径。",
                 "l 语言，? 帮助。",
                 "鼠标：点击行选中，再点一次下钻；滚轮滚动；footer 按钮可点击。",
             ],
@@ -407,7 +407,7 @@ const APPS_EN: Doc = Doc {
             body: &[
                 "Enter drills into the selected group's processes; Esc clears that filter.",
                 "Narrow or short terminals fall back to a list instead of the treemap.",
-                "s metric, f filter, t theme, l language, ? help.",
+                "s metric, / or f filter, t theme, l language, ? help.",
                 "Mouse: click a tile/row to select, click it again to drill; wheel scrolls; footer buttons are clickable.",
             ],
         },
@@ -431,7 +431,7 @@ const APPS_ZH: Doc = Doc {
             body: &[
                 "Enter 下钻到该应用的进程；Esc 清除过滤。",
                 "终端过窄或过矮时回退为列表视图。",
-                "s 指标，f 过滤，t 主题，l 语言，? 帮助。",
+                "s 指标，/ 或 f 过滤，t 主题，l 语言，? 帮助。",
                 "鼠标：点击图块/行选中，再点一次下钻；滚轮滚动；footer 按钮可点击。",
             ],
         },
@@ -446,7 +446,7 @@ const DETAIL_EN: Doc = Doc {
             body: &[
                 "Mappings are aggregated by name; PSS/USS/anon/swap/size/VMAs are sums.",
                 "Enter expands a group into individual VMAs with address range and permissions.",
-                "z/Z collapse or expand all; f filters mapping names; Esc leaves detail.",
+                "z/Z collapse or expand all; / or f filters mapping names; Esc leaves detail.",
                 "PRIV|SHARED bar: USS vs (PSS - USS), scaled to the largest group.",
                 "Mouse: click a mapping row to select, click it again to expand its VMAs.",
             ],
@@ -470,7 +470,7 @@ const DETAIL_ZH: Doc = Doc {
             body: &[
                 "映射按名称聚合；PSS/USS/anon/swap/size/VMAs 都是求和值。",
                 "Enter 把一组展开成逐 VMA，显示地址区间和权限。",
-                "z/Z 全部收起/展开；f 过滤映射名；Esc 退出详情。",
+                "z/Z 全部收起/展开；/ 或 f 过滤映射名；Esc 退出详情。",
                 "PRIV|SHARED 条：USS 与 (PSS - USS)，按最大组缩放。",
                 "鼠标：点击映射行选中，再点一次展开逐 VMA。",
             ],

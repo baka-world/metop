@@ -331,6 +331,57 @@ fn filter_matches_comm_and_pid() {
 }
 
 #[test]
+fn slash_filters_each_view_and_remains_literal_in_paths() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    fn key(app: &mut App, code: KeyCode) {
+        app.on_key(KeyEvent::new(code, KeyModifiers::NONE));
+    }
+    fn filter(app: &mut App, query: &str) {
+        key(app, KeyCode::Char('/'));
+        for c in query.chars() {
+            key(app, KeyCode::Char(c));
+        }
+        key(app, KeyCode::Enter);
+    }
+
+    let mut app = App::new(None);
+    app.on_snapshot(snapshot());
+    filter(&mut app, "chr");
+    assert_eq!(
+        app.visible().iter().map(|row| row.pid).collect::<Vec<_>>(),
+        vec![100]
+    );
+
+    key(&mut app, KeyCode::Esc);
+    key(&mut app, KeyCode::Tab);
+    filter(&mut app, "/system.slice");
+    assert_eq!(app.filter, "/system.slice");
+    assert_eq!(app.visible_cgroups()[0].path, "/system.slice");
+    assert_eq!(app.visible_cgroups().len(), 1);
+
+    key(&mut app, KeyCode::Esc);
+    key(&mut app, KeyCode::Tab);
+    filter(&mut app, "chrome");
+    assert_eq!(
+        app.visible_apps()
+            .iter()
+            .map(|group| group.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["chrome"]
+    );
+
+    key(&mut app, KeyCode::Esc);
+    key(&mut app, KeyCode::Tab);
+    app.detail = true;
+    filter(&mut app, "/usr/lib");
+    assert_eq!(app.detail_filter, "/usr/lib");
+    assert!(app.filter.is_empty());
+    assert_eq!(app.detail_len(), 1);
+    assert!(render(&mut app).contains("/usr/lib/libc.so.6"));
+}
+
+#[test]
 fn detail_view_shows_grouped_vmas() {
     let mut app = App::new(None);
     app.on_snapshot(snapshot());

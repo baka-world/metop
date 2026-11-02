@@ -88,7 +88,7 @@ metop --diff a.json b.json --min-delta 50M
 | `?` | 当前页面帮助（顶部状态、列、标记、按键） |
 | `l` | 切换界面语言（English / 中文） |
 | 鼠标 | 点击行/图块选中，再点一次打开或下钻；滚轮滚动；footer 按钮可点击 |
-| `f` | 过滤（进程名、PID、cgroup 路径、映射名） |
+| `/` 或 `f` | 过滤（进程名、PID、应用名、cgroup 路径、映射名） |
 | `Enter` | 详情 / 展开映射 / 下钻 cgroup 或 app |
 | `Esc` | 清除过滤、退出详情或下钻 |
 | `q` | 退出 |
@@ -109,7 +109,7 @@ metop --diff a.json b.json --min-delta 50M
 
 ![VMA 详情](docs/images/detail.png)
 
-对进程按 `Enter` 按映射名聚合；再按一次 `Enter` 把一组展开成逐 VMA。`f` 过滤映射名，`z`/`Z` 全部收起/展开。
+对进程按 `Enter` 按映射名聚合；再按一次 `Enter` 把一组展开成逐 VMA。`/` 或 `f` 过滤映射名，`z`/`Z` 全部收起/展开。
 
 ### cgroup v2
 
@@ -150,7 +150,7 @@ metop --diff a.json b.json --min-delta 50M
 ## 已知问题
 
 - **没有权限时数据不全**：非 root 只覆盖本用户进程；内核线程永远没有 PSS，已从覆盖率分母中排除。
-- **排序变化时选中进程可能改变**：用 `f` 按 PID 过滤，可在内存变化时固定观察目标。
+- **排序变化时选中进程可能改变**：用 `/` 或 `f` 按 PID 过滤，可在内存变化时固定观察目标。
 - **应用分组会回退到可执行文件**：没有 systemd `app-*.scope` 时，两个 Chromium 安装会合并成一块；`others (N)` 是合成块，不可下钻。
 - **不支持 cgroup v1**：视图会说明原因，而不是显示 0。
 - **采样会扰动被测对象**：读 `smaps` 要在 mmap 锁下走页表，所以有 150 ms/tick 预算，详情按需读取。

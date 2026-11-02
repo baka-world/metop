@@ -887,7 +887,7 @@ impl App {
             KeyCode::Char('r') => self.toggle_reverse(),
             KeyCode::Char('t') => self.toggle_theme(),
             KeyCode::Char('l') => self.toggle_lang(),
-            KeyCode::Char('f') => self.start_filter(),
+            KeyCode::Char('f' | '/') => self.start_filter(),
             KeyCode::Enter | KeyCode::Char(' ') => self.enter_action(),
             KeyCode::Char('z') if self.detail => self.expanded.clear(),
             KeyCode::Char('Z') if self.detail => {

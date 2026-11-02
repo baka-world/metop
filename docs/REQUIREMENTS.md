@@ -49,7 +49,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | F10 | 不可读进程区分原因：`EACCES`（需要 root，提示 `n/a (needs root)`）与 `ESRCH/无 mm`（内核线程，root 也无解，仅标 `n/a`）；两者都负缓存 30 s、不占预算 | `denied_pids_do_not_consume_the_budget_until_the_denial_expires`、`unreadable_processes_are_classified_by_reason` |
 | F11 | 按 PSS/USS/比值排序时，覆盖率未满则标题标注 `ranking incomplete` | `render` 断言 + 实机帧 |
 | F12 | 进程内存构成：anon / file / shmem / swap-pss / THP / KSM，表格里用堆叠条（主题色板且四类颜色互异、footer 图例仅进程视图、16 格、非零类别至少 1 格）、详情页给出数值 | 实机：chrome `anon 243M file 57M shmem 4.3M`，与 `/proc/PID/smaps_rollup` 一致 |
-| F13 | 详情页可过滤映射名（`f`），与进程过滤互不干扰 | `detail_filter_narrows_mappings`、`editing_targets_the_detail_filter...` |
+| F13 | 详情页可用 `/` 或 `f` 过滤映射名，与进程过滤互不干扰 | `detail_filter_narrows_mappings`、`editing_targets_the_detail_filter...`、`slash_filters_each_view_and_remains_literal_in_paths` |
 | F14 | `--json` 输出一次性快照：稳定按 PID 排序、显式 `_kb` 单位、带 schema 版本与 `self_pid` | `tests/json.rs` 通过真实二进制校验 |
 | F15 | 详情页把映射展开为逐 VMA（地址区间、权限、PSS/USS/anon/swap/size） | `enter_expands_a_group_into_its_individual_vmas`、实机 1266 个 VMA |
 | F16 | `--diff A.json B.json` 按 \|ΔRSS\| 排序输出，标注 new/gone，排除快照写者自身 | `tests/diff.rs`（4 个场景） |
@@ -126,7 +126,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | `Enter`（cgroup） | 列出该 cgroup 子树内的进程；`Esc` 返回列表 |
 | `Enter`（apps） | 下钻到该应用的进程（进程表加 `app: <name>` 过滤），`Esc` 清除 |
 | `s`（apps） | 面积指标 PSS → USS → RSS |
-| `f` | 过滤输入；`Enter` 应用，`Esc` 取消（进程视图过滤名/PID，cgroup 视图过滤路径，详情页过滤映射名） |
+| `/` 或 `f` | 过滤输入；`Enter` 应用，`Esc` 取消（进程视图过滤名/PID，apps 视图过滤应用名，cgroup 视图过滤路径，详情页过滤映射名） |
 | `Esc`（详情） | 有映射过滤时先清除过滤，再按一次退出详情 |
 | `Enter` | 进入详情；在详情内展开/收起映射（`z`/`Z` 全部收起/展开） |
 | `Esc` | 清除过滤 / 返回 |

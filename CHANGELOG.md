@@ -14,6 +14,7 @@ version (`0.MINOR.PATCH`).
   120) for process, app, cgroup PSI and OOM histories.
 - Uncollapsed application groups in JSON snapshots, including memory totals,
   process counts and PIDs, with `--fields` projection support.
+- Vim-style `/` shortcut for filtering, alongside the existing `f` key.
 
 ## [0.4.0] - 2026-11-01
 

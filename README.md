@@ -88,7 +88,7 @@ metop --diff a.json b.json --min-delta 50M
 | `?` | page help (header, columns, markers, keys) |
 | `l` | switch UI language (English / 中文) |
 | Mouse | click rows/tiles to select, click again to open or drill; wheel scrolls; footer buttons are clickable |
-| `f` | filter (process name, pid, cgroup path, mapping name) |
+| `/` or `f` | filter (process name, pid, app name, cgroup path, mapping name) |
 | `Enter` | detail / expand mapping / drill into a cgroup or an app |
 | `Esc` | clear filter, leave detail or drill-down |
 | `q` | quit |
@@ -109,7 +109,7 @@ The header reports the sampler's own cost (`sweep`/`pss` ms, PSS coverage, sampl
 
 ![vma detail](docs/images/detail.png)
 
-`Enter` on a process aggregates its mappings by name; `Enter` again expands one group into individual VMAs. `f` filters mapping names, `z`/`Z` collapse or expand everything.
+`Enter` on a process aggregates its mappings by name; `Enter` again expands one group into individual VMAs. `/` or `f` filters mapping names, `z`/`Z` collapse or expand everything.
 
 ### cgroup v2
 
@@ -150,7 +150,7 @@ The snapshot's `apps` array contains every application group without the treemap
 ## Known issues
 
 - **Counts are partial without privileges.** Non-root runs only cover your own user's processes; kernel threads never have a PSS and are excluded from coverage denominators.
-- **Selection can move when sorted rows change.** Filter by PID with `f` to keep a process selected while its memory changes.
+- **Selection can move when sorted rows change.** Filter by PID with `/` or `f` to keep a process selected while its memory changes.
 - **App grouping falls back to the executable.** Without a systemd `app-*.scope`, two Chromium installs merge into one tile; `others (N)` is synthetic and cannot be drilled into.
 - **cgroup v1 is unsupported** — the view states why instead of showing zeros.
 - **Sampling perturbs the target.** Reading `smaps` walks page tables under the mmap lock, so walks are budgeted (150 ms/tick) and the detail view is on-demand.
