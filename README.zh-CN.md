@@ -39,18 +39,18 @@ RSS 会把每个共享页在每个进程里各算一遍，多进程应用因此�
 
 | 平台 | 产物 |
 |---|---|
-| Debian / Ubuntu | `mtop_0.2.0-1_amd64.deb` · `mtop_0.2.0-1_arm64.deb` |
-| Fedora / RHEL / openSUSE | `mtop-0.2.0-1.x86_64.rpm` · `mtop-0.2.0-1.aarch64.rpm` |
-| 任意发行版 | `mtop-v0.2.0-x86_64-unknown-linux-musl.tar.gz` · `…-aarch64-…` |
+| Debian / Ubuntu | `mtop_0.3.0-1_amd64.deb` · `mtop_0.3.0-1_arm64.deb` |
+| Fedora / RHEL / openSUSE | `mtop-0.3.0-1.x86_64.rpm` · `mtop-0.3.0-1.aarch64.rpm` |
+| 任意发行版 | `mtop-v0.3.0-x86_64-unknown-linux-musl.tar.gz` · `…-aarch64-…` |
 
 ```sh
 # Debian / Ubuntu
-gh release download v0.2.0 --repo baka-world/mtop --pattern '*.deb'
-sudo dpkg -i mtop_0.2.0-1_amd64.deb
+gh release download v0.3.0 --repo baka-world/mtop --pattern '*.deb'
+sudo dpkg -i mtop_0.3.0-1_amd64.deb
 
 # Fedora / RHEL
-gh release download v0.2.0 --repo baka-world/mtop --pattern '*.rpm'
-sudo rpm -i mtop-0.2.0-1.x86_64.rpm
+gh release download v0.3.0 --repo baka-world/mtop --pattern '*.rpm'
+sudo rpm -i mtop-0.3.0-1.x86_64.rpm
 
 # 从源码
 cargo build --release && sudo install -m755 target/release/mtop /usr/local/bin/

@@ -39,18 +39,18 @@ Prebuilt packages are produced by GitHub Actions for `amd64` and `arm64`; every 
 
 | Platform | Asset |
 |---|---|
-| Debian / Ubuntu | `mtop_0.2.0-1_amd64.deb` · `mtop_0.2.0-1_arm64.deb` |
-| Fedora / RHEL / openSUSE | `mtop-0.2.0-1.x86_64.rpm` · `mtop-0.2.0-1.aarch64.rpm` |
-| Any distro | `mtop-v0.2.0-x86_64-unknown-linux-musl.tar.gz` · `…-aarch64-…` |
+| Debian / Ubuntu | `mtop_0.3.0-1_amd64.deb` · `mtop_0.3.0-1_arm64.deb` |
+| Fedora / RHEL / openSUSE | `mtop-0.3.0-1.x86_64.rpm` · `mtop-0.3.0-1.aarch64.rpm` |
+| Any distro | `mtop-v0.3.0-x86_64-unknown-linux-musl.tar.gz` · `…-aarch64-…` |
 
 ```sh
 # Debian / Ubuntu
-gh release download v0.2.0 --repo baka-world/mtop --pattern '*.deb'
-sudo dpkg -i mtop_0.2.0-1_amd64.deb
+gh release download v0.3.0 --repo baka-world/mtop --pattern '*.deb'
+sudo dpkg -i mtop_0.3.0-1_amd64.deb
 
 # Fedora / RHEL
-gh release download v0.2.0 --repo baka-world/mtop --pattern '*.rpm'
-sudo rpm -i mtop-0.2.0-1.x86_64.rpm
+gh release download v0.3.0 --repo baka-world/mtop --pattern '*.rpm'
+sudo rpm -i mtop-0.3.0-1.x86_64.rpm
 
 # From source
 cargo build --release && sudo install -m755 target/release/mtop /usr/local/bin/
