@@ -29,7 +29,7 @@ RSS 会把每个共享页在每个进程里各算一遍，多进程应用因此�
 - **cgroup v2 视图**：`memory.current` / `memory.stat` / `memory.max` / `memory.events`、PSI（`some`/`full`）、OOM 增量，并能下钻到子树里的进程。
 - **apps treemap**：按应用聚合（systemd `app-*.scope` → exe → comm），面积 ∝ PSS，长尾折叠为 `others`。
 - **可脚本化**：`--json`（`--fields` 点号投影）、`--diff`（`--min-delta` / `--top`），快照按 PID 稳定排序、可直接 diff。
-- **主题**：七套内置配色，其中 `btop` / `dracula` / `gruvbox-dark` / `kanagawa-wave` 的颜色取自 btop 自带主题；`--theme`、`MTOP_THEME` 或运行时 `t` 切换（不需要配置文件）。
+- **主题**：七套内置配色，其中 `btop` / `dracula` / `gruvbox-dark` / `kanagawa-wave` 的颜色取自 btop 自带主题；`--theme`、`MTOP_THEME` 或运行时 `t` 切换（不需要配置文件）。主题以真彩色定义，终端不支持 RGB 时自动量化到 256 色或 16 色，可用 `--color` 覆盖检测。
 
 ## 安装
 
@@ -63,6 +63,7 @@ mtop                       # 全系统
 mtop --pid 1234            # 启动即选中某个进程
 mtop --theme dracula       # default | btop | dracula | gruvbox-dark |
                            # kanagawa-wave | light | ansi16（也可用 MTOP_THEME）
+mtop --color 256           # auto | truecolor | 256 | 16
 mtop --json --fields procs.pid,procs.rss_kb
 mtop --diff a.json b.json --min-delta 50M
 ```

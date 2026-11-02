@@ -10,7 +10,7 @@ use crate::apps::AppGroup;
 use crate::cgroup::CgroupMem;
 use crate::model::{Focus, ProcRow, Snapshot, SortKey};
 use crate::procfs::{Vma, VmaGroup};
-use crate::theme::Theme;
+use crate::theme::{ColorSupport, Theme};
 use crate::ui;
 
 pub const HISTORY: usize = 120;
@@ -114,6 +114,8 @@ pub struct App {
     pub view: View,
     /// Active built-in theme; `t` cycles it.
     pub theme: Theme,
+    /// Terminal colour depth the active palette was rendered for.
+    pub support: ColorSupport,
     pub sort: SortKey,
     pub cgroup_sort: CgroupSort,
     pub cgroup_sel: usize,
@@ -169,6 +171,7 @@ impl App {
         let mut app = App {
             view: View::Procs,
             theme: Theme::DEFAULT,
+            support: ColorSupport::TrueColor,
             sort: SortKey::Rss,
             cgroup_sort: CgroupSort::Current,
             cgroup_sel: 0,
@@ -552,7 +555,7 @@ impl App {
                 }
             }
             KeyCode::Char('r') => self.desc = !self.desc,
-            KeyCode::Char('t') => self.theme = self.theme.next(),
+            KeyCode::Char('t') => self.theme = self.theme.next().rendered(self.support),
             KeyCode::Char('f') => {
                 self.editing = true;
                 self.editing_detail = self.detail;
@@ -685,11 +688,13 @@ impl App {
         terminal: &mut DefaultTerminal,
         start_pid: Option<u32>,
         theme: Theme,
+        support: ColorSupport,
         tx: std::sync::mpsc::Sender<Focus>,
         rx: std::sync::mpsc::Receiver<Snapshot>,
     ) -> std::io::Result<()> {
         let mut app = App::new(start_pid);
-        app.theme = theme;
+        app.support = support;
+        app.theme = theme.rendered(support);
         loop {
             let mut got = false;
             while let Ok(snap) = rx.try_recv() {
