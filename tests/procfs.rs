@@ -1,6 +1,6 @@
 //! Invariants against the real /proc of the test process.
 
-use mtop::procfs;
+use metop::procfs;
 
 #[test]
 fn list_pids_contains_self() {
@@ -109,7 +109,7 @@ fn meminfo_is_normalized_to_kb() {
 
 #[test]
 fn unreadable_processes_are_classified_by_reason() {
-    use mtop::procfs::RollupError;
+    use metop::procfs::RollupError;
 
     // Our own process is always readable.
     assert!(procfs::read_rollup(std::process::id()).is_ok());

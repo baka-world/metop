@@ -1,8 +1,8 @@
 //! Built-in colour themes.
 //!
-//! A theme is a compile-time [`Palette`]: mtop intentionally has no config
+//! A theme is a compile-time [`Palette`]: metop intentionally has no config
 //! file (see `docs/REQUIREMENTS.md`), so selecting one is a CLI flag
-//! (`--theme`), the `MTOP_THEME` environment variable, or the `t` key while
+//! (`--theme`), the `METOP_THEME` environment variable, or the `t` key while
 //! the TUI is running.
 //!
 //! Every palette slot is semantic rather than per-widget: a light terminal can
@@ -107,7 +107,7 @@ pub struct Palette {
 }
 
 impl Palette {
-    /// mtop's original colours.
+    /// metop's original colours.
     pub const DEFAULT: Self = Self {
         dim: Color::DarkGray,
         dim_selected: Color::Gray,
@@ -305,7 +305,7 @@ impl Theme {
     };
 
     /// btop's `gruvbox_dark.theme`. btop's inactive_fg/selected_bg are nearly
-    /// the same as main_bg, so the slots mtop uses for readable secondary text
+    /// the same as main_bg, so the slots metop uses for readable secondary text
     /// and selection are lifted to gruvbox bg1/fg4.
     pub const GRUVBOX: Self = Self {
         name: "gruvbox-dark",

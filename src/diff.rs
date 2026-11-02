@@ -1,4 +1,4 @@
-//! `mtop --diff A.json B.json`: compare two snapshots produced by `--json`.
+//! `metop --diff A.json B.json`: compare two snapshots produced by `--json`.
 //!
 //! Deliberately text, not a TUI mode: the interesting question ("what grew?")
 //! belongs in a pipeline, and the JSON contract is already tested.
@@ -53,7 +53,7 @@ struct Doc {
 fn parse(text: &str, name: &str) -> Result<Doc, String> {
     let v: Value = serde_json::from_str(text).map_err(|e| format!("{name}: not JSON ({e})"))?;
     match v.get("schema").and_then(Value::as_str) {
-        Some("mtop.snapshot.v1") => {}
+        Some("metop.snapshot.v1") | Some("mtop.snapshot.v1") => {}
         Some(other) => return Err(format!("{name}: unsupported snapshot schema {other:?}")),
         None => return Err(format!("{name}: missing schema")),
     }
@@ -187,7 +187,7 @@ pub fn render(a_text: &str, b_text: &str, opts: &Opts) -> Result<String, String>
     let span = b_at.saturating_sub(a_at) / 1000;
     let mut out = String::new();
     out.push_str(&format!(
-        "mtop diff  over {span}s  ({} -> {} procs)   {grew} grew, {shrank} shrank, {new} new, {gone} gone",
+        "metop diff  over {span}s  ({} -> {} procs)   {grew} grew, {shrank} shrank, {new} new, {gone} gone",
         a.procs.len(),
         b.procs.len()
     ));

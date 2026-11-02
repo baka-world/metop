@@ -5,10 +5,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
-use mtop::app::App;
-use mtop::cgroup::CgroupMem;
-use mtop::model::{Detail, ProcRow, PssInfo, Snapshot, SortKey};
-use mtop::procfs::{MemInfo, Rollup, SmapsReport, Vma, VmaGroup};
+use metop::app::App;
+use metop::cgroup::CgroupMem;
+use metop::model::{Detail, ProcRow, PssInfo, Snapshot, SortKey};
+use metop::procfs::{MemInfo, Rollup, SmapsReport, Vma, VmaGroup};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 
@@ -170,7 +170,7 @@ fn snapshot() -> Snapshot {
         }),
         sweep_ms: 18.0,
         pss_ms: 42.0,
-        pressure: mtop::procfs::Pressure {
+        pressure: metop::procfs::Pressure {
             some10: 1.5,
             full10: 0.25,
         },
@@ -233,7 +233,7 @@ fn snapshot() -> Snapshot {
 
 fn render(app: &mut App) -> String {
     let mut term = Terminal::new(TestBackend::new(120, 26)).unwrap();
-    term.draw(|f| mtop::ui::draw(f, app)).unwrap();
+    term.draw(|f| metop::ui::draw(f, app)).unwrap();
     let buf = term.backend().buffer();
     let mut out = String::new();
     for y in 0..buf.area.height {
@@ -436,7 +436,7 @@ fn pss_mix_bar_has_distinct_segment_colors() {
     let mut app = App::new(None);
     app.on_snapshot(snapshot());
     let mut term = Terminal::new(TestBackend::new(120, 26)).unwrap();
-    term.draw(|f| mtop::ui::draw(f, &mut app)).unwrap();
+    term.draw(|f| metop::ui::draw(f, &mut app)).unwrap();
     let buf = term.backend().buffer();
 
     // Row 0 (chrome) is selected and therefore intentionally colourless; the
@@ -471,7 +471,7 @@ fn pss_mix_bar_has_distinct_segment_colors() {
 
 #[test]
 fn pss_mix_footer_has_a_legend() {
-    use mtop::app::View;
+    use metop::app::View;
 
     let mut app = App::new(None);
     app.on_snapshot(snapshot());
@@ -584,7 +584,7 @@ fn cgroup_view_sorts_and_filters() {
     app.on_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
 
     // /system.slice has less anon but more file than the user slice? both less.
-    app.cgroup_sort = mtop::app::CgroupSort::File;
+    app.cgroup_sort = metop::app::CgroupSort::File;
     let order: Vec<&str> = app
         .visible_cgroups()
         .iter()
@@ -684,7 +684,7 @@ fn cgroup_psi_history_is_recorded_and_plotted() {
     assert_eq!(history[0], 30, "percent*10 for a 0-1000 scale");
     assert_eq!(history[1], 75);
 
-    app.view = mtop::app::View::Cgroups;
+    app.view = metop::app::View::Cgroups;
     let text = render(&mut app);
     assert!(
         text.contains("psi 7.5%"),
@@ -695,7 +695,7 @@ fn cgroup_psi_history_is_recorded_and_plotted() {
 /// Selected rows are tinted (background only) so semantic colours survive.
 fn selected_row_styles(app: &mut App) -> Vec<(ratatui::style::Color, ratatui::style::Color)> {
     let mut term = Terminal::new(TestBackend::new(120, 26)).unwrap();
-    term.draw(|f| mtop::ui::draw(f, app)).unwrap();
+    term.draw(|f| metop::ui::draw(f, app)).unwrap();
     let buf = term.backend().buffer();
     let y = (0..buf.area.height)
         .find(|y| (0..buf.area.width).any(|x| buf[(x, *y)].symbol() == "▸"))
@@ -707,7 +707,7 @@ fn selected_row_styles(app: &mut App) -> Vec<(ratatui::style::Color, ratatui::st
 
 #[test]
 fn selected_row_is_tinted_without_losing_semantic_colours() {
-    use mtop::ui::HL_BG;
+    use metop::ui::HL_BG;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ratatui::style::Color;
 
@@ -739,7 +739,7 @@ fn selected_row_is_tinted_without_losing_semantic_colours() {
 
 #[test]
 fn mouse_selects_rows_scrolls_and_clicks_footer_buttons() {
-    use mtop::app::{FooterAction, MouseTarget};
+    use metop::app::{FooterAction, MouseTarget};
     use ratatui::crossterm::event::{
         KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
     };
@@ -820,7 +820,7 @@ fn mouse_selects_rows_scrolls_and_clicks_footer_buttons() {
         .expect("view button hit")
         .rect;
     app.on_mouse(click(view.x + 1, view.y));
-    assert_eq!(app.view, mtop::app::View::Cgroups);
+    assert_eq!(app.view, metop::app::View::Cgroups);
     let _ = render(&mut app);
     let sort_before = app.cgroup_sort;
     let sort = app
@@ -845,14 +845,14 @@ fn mouse_selects_rows_scrolls_and_clicks_footer_buttons() {
 
 #[test]
 fn mouse_click_selects_a_treemap_tile() {
-    use mtop::app::{MouseTarget, View};
+    use metop::app::{MouseTarget, View};
     use ratatui::crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 
     let mut app = App::new(None);
     app.on_snapshot(snapshot());
     app.view = View::Apps;
     let mut term = Terminal::new(TestBackend::new(120, 30)).unwrap();
-    term.draw(|f| mtop::ui::draw(f, &mut app)).unwrap();
+    term.draw(|f| metop::ui::draw(f, &mut app)).unwrap();
     let tile = app
         .hits
         .iter()
@@ -871,8 +871,8 @@ fn mouse_click_selects_a_treemap_tile() {
 
 #[test]
 fn help_overlay_is_per_page_and_bilingual() {
-    use mtop::app::View;
-    use mtop::i18n::Lang;
+    use metop::app::View;
+    use metop::i18n::Lang;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     let key = |c: char| KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
@@ -959,7 +959,7 @@ fn help_scroll_is_clamped_by_the_renderer() {
     // A small terminal makes the help text wrap, so the scroll limit must be
     // computed from the wrapped line count.
     let mut term = Terminal::new(TestBackend::new(80, 20)).unwrap();
-    term.draw(|f| mtop::ui::draw(f, &mut app)).unwrap();
+    term.draw(|f| metop::ui::draw(f, &mut app)).unwrap();
     let buf = term.backend().buffer();
     let mut text = String::new();
     for y in 0..buf.area.height {
@@ -976,7 +976,7 @@ fn help_scroll_is_clamped_by_the_renderer() {
 
 #[test]
 fn theme_key_cycles_the_palette_and_names_it_in_the_footer() {
-    use mtop::theme::Theme;
+    use metop::theme::Theme;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ratatui::style::Color;
 
@@ -984,7 +984,7 @@ fn theme_key_cycles_the_palette_and_names_it_in_the_footer() {
     app.on_snapshot(snapshot());
 
     let mut term = Terminal::new(TestBackend::new(120, 26)).unwrap();
-    term.draw(|f| mtop::ui::draw(f, &mut app)).unwrap();
+    term.draw(|f| metop::ui::draw(f, &mut app)).unwrap();
     let bgs = |term: &Terminal<TestBackend>| -> HashSet<Color> {
         term.backend()
             .buffer()
@@ -997,7 +997,7 @@ fn theme_key_cycles_the_palette_and_names_it_in_the_footer() {
     assert!(!bgs(&term).contains(&Color::Rgb(0x6a, 0x2f, 0x2f)));
 
     app.on_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
-    term.draw(|f| mtop::ui::draw(f, &mut app)).unwrap();
+    term.draw(|f| metop::ui::draw(f, &mut app)).unwrap();
     assert!(render(&mut app).contains("theme: btop"));
     assert!(
         bgs(&term).contains(&Color::Rgb(0x6a, 0x2f, 0x2f)),
@@ -1018,7 +1018,7 @@ fn theme_key_cycles_the_palette_and_names_it_in_the_footer() {
 
 #[test]
 fn ansi256_rendering_uses_indexed_colours_only() {
-    use mtop::theme::{ColorSupport, Theme};
+    use metop::theme::{ColorSupport, Theme};
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ratatui::style::Color;
 
@@ -1028,7 +1028,7 @@ fn ansi256_rendering_uses_indexed_colours_only() {
     app.theme = Theme::BTOP.rendered(app.support);
 
     let mut term = Terminal::new(TestBackend::new(120, 26)).unwrap();
-    term.draw(|f| mtop::ui::draw(f, &mut app)).unwrap();
+    term.draw(|f| metop::ui::draw(f, &mut app)).unwrap();
     let fgs: HashSet<Color> = term
         .backend()
         .buffer()
@@ -1049,7 +1049,7 @@ fn ansi256_rendering_uses_indexed_colours_only() {
     app.on_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
     let next = Theme::BTOP.next();
     assert!(render(&mut app).contains(&format!("theme: {}", next.name)));
-    term.draw(|f| mtop::ui::draw(f, &mut app)).unwrap();
+    term.draw(|f| metop::ui::draw(f, &mut app)).unwrap();
     assert!(
         term.backend().buffer().content().iter().all(|cell| {
             !matches!(cell.fg, Color::Rgb(..)) && !matches!(cell.bg, Color::Rgb(..))
@@ -1059,7 +1059,7 @@ fn ansi256_rendering_uses_indexed_colours_only() {
 
 #[test]
 fn highlight_never_falls_back_to_the_terminal_background() {
-    use mtop::ui::HL_BG;
+    use metop::ui::HL_BG;
     use ratatui::style::{Color, Modifier};
 
     assert_ne!(
@@ -1072,7 +1072,7 @@ fn highlight_never_falls_back_to_the_terminal_background() {
     let mut app = App::new(None);
     app.on_snapshot(snapshot());
     let mut term = Terminal::new(TestBackend::new(120, 26)).unwrap();
-    term.draw(|f| mtop::ui::draw(f, &mut app)).unwrap();
+    term.draw(|f| metop::ui::draw(f, &mut app)).unwrap();
     let buf = term.backend().buffer();
     let y = (0..buf.area.height)
         .find(|y| (0..buf.area.width).any(|x| buf[(x, *y)].symbol() == "▸"))
@@ -1086,8 +1086,8 @@ fn highlight_never_falls_back_to_the_terminal_background() {
 
 #[test]
 fn treemap_selection_inverts_the_tile_instead_of_reusing_highlight_bg() {
-    use mtop::app::View;
-    use mtop::theme::Theme;
+    use metop::app::View;
+    use metop::theme::Theme;
     use ratatui::style::Color;
 
     let mut app = App::new(None);
@@ -1096,7 +1096,7 @@ fn treemap_selection_inverts_the_tile_instead_of_reusing_highlight_bg() {
     app.theme = Theme::LIGHT;
 
     let mut term = Terminal::new(TestBackend::new(120, 30)).unwrap();
-    term.draw(|f| mtop::ui::draw(f, &mut app)).unwrap();
+    term.draw(|f| metop::ui::draw(f, &mut app)).unwrap();
     let buf = term.backend().buffer();
     // Skip the header/summary rows and the footer: only the treemap remains.
     let tile_cells = || {
@@ -1125,7 +1125,7 @@ fn treemap_selection_inverts_the_tile_instead_of_reusing_highlight_bg() {
 
 #[test]
 fn apps_view_groups_processes_and_drills_into_the_process_table() {
-    use mtop::app::View;
+    use metop::app::View;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     let mut app = App::new(None);
@@ -1166,10 +1166,10 @@ fn apps_view_groups_processes_and_drills_into_the_process_table() {
 fn apps_view_falls_back_to_a_list_when_narrow() {
     let mut app = App::new(None);
     app.on_snapshot(snapshot());
-    app.view = mtop::app::View::Apps;
+    app.view = metop::app::View::Apps;
 
     let mut term = Terminal::new(TestBackend::new(80, 20)).unwrap();
-    term.draw(|f| mtop::ui::draw(f, &mut app)).unwrap();
+    term.draw(|f| metop::ui::draw(f, &mut app)).unwrap();
     let buf = term.backend().buffer();
     let mut text = String::new();
     for y in 0..buf.area.height {
@@ -1188,8 +1188,8 @@ fn apps_view_falls_back_to_a_list_when_narrow() {
     );
 
     // The selected row's share bar must not reuse the highlight colour.
-    app.theme = mtop::theme::Theme::LIGHT;
-    term.draw(|f| mtop::ui::draw(f, &mut app)).unwrap();
+    app.theme = metop::theme::Theme::LIGHT;
+    term.draw(|f| metop::ui::draw(f, &mut app)).unwrap();
     let buf = term.backend().buffer();
     let p = app.theme.palette;
     let y = (0..buf.area.height)
@@ -1209,7 +1209,7 @@ fn apps_view_falls_back_to_a_list_when_narrow() {
 
 #[test]
 fn apps_history_tracks_each_metric_separately() {
-    use mtop::app::AppMetric;
+    use metop::app::AppMetric;
 
     let mut app = App::new(None);
     let first = snapshot();

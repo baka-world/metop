@@ -1,16 +1,16 @@
-# mtop
+# metop
 
-[![CI](https://github.com/baka-world/mtop/actions/workflows/ci.yml/badge.svg)](https://github.com/baka-world/mtop/actions/workflows/ci.yml)
-[![Release](https://github.com/baka-world/mtop/actions/workflows/release.yml/badge.svg)](https://github.com/baka-world/mtop/actions/workflows/release.yml)
+[![CI](https://github.com/baka-world/metop/actions/workflows/ci.yml/badge.svg)](https://github.com/baka-world/metop/actions/workflows/ci.yml)
+[![Release](https://github.com/baka-world/metop/actions/workflows/release.yml/badge.svg)](https://github.com/baka-world/metop/actions/workflows/release.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Crates.io](https://img.shields.io/crates/v/metop.svg)](https://crates.io/crates/metop)
 [![docs.rs](https://docs.rs/metop/badge.svg)](https://docs.rs/metop)
 
 **English** · [简体中文](README.zh-CN.md)
 
-A Linux memory analysis TUI. `htop` answers "how much RSS does each process have"; mtop answers **"who is actually using the memory, and on what"** — with PSS/USS, per-mapping drill-down, cgroup accounting and an app-level treemap.
+A Linux memory analysis TUI. `htop` answers "how much RSS does each process have"; metop answers **"who is actually using the memory, and on what"** — with PSS/USS, per-mapping drill-down, cgroup accounting and an app-level treemap.
 
-![mtop demo](docs/images/demo.gif)
+![metop demo](docs/images/demo.gif)
 
 ## Why PSS
 
@@ -22,7 +22,7 @@ RSS counts every shared page once per process, so any multi-process app looks in
 | **PSS** | **1.7 GB** | **5.5 GB** |
 | overcount | 2.4× | 2.2× |
 
-RSS sums to roughly **2.2×** the real number system-wide (2.4× for Chrome). mtop uses PSS for ranking and area, USS for "what would I free if I killed it", and shows the composition (anonymous / file / shmem / swap) so you can tell a heap leak from page cache.
+RSS sums to roughly **2.2×** the real number system-wide (2.4× for Chrome). metop uses PSS for ranking and area, USS for "what would I free if I killed it", and shows the composition (anonymous / file / shmem / swap) so you can tell a heap leak from page cache.
 
 ## Features
 
@@ -32,8 +32,8 @@ RSS sums to roughly **2.2×** the real number system-wide (2.4× for Chrome). mt
 - **App treemap** — processes grouped into applications (systemd `app-*.scope` → exe → comm), area ∝ PSS, long tail folded into `others`.
 - **Scriptable** — `--json` (with `--fields` projection), `--diff` (with `--min-delta` / `--top`), stable pid ordering for diffing.
 - **Mouse** — click a table row or treemap tile to select, click it again to open/expand/drill, wheel to scroll, and click the footer buttons (help, theme, language, view, sort, filter, enter, back, quit).
-- **Bilingual help** — `?` opens page-specific help for processes, cgroups, apps, VMA detail and drill-down; `--lang auto|en|zh`, `MTOP_LANG`, or `l` switches Chinese/English.
-- **Themes** — seven palettes, including btop-derived `btop`, `dracula`, `gruvbox-dark` and `kanagawa-wave`; pick one with `--theme`, `MTOP_THEME`, or `t` while running (no config file). Themes are authored in truecolor and auto-rendered to 256 or 16 colours when the terminal cannot display RGB; `--color` overrides detection.
+- **Bilingual help** — `?` opens page-specific help for processes, cgroups, apps, VMA detail and drill-down; `--lang auto|en|zh`, `METOP_LANG`, or `l` switches Chinese/English.
+- **Themes** — seven palettes, including btop-derived `btop`, `dracula`, `gruvbox-dark` and `kanagawa-wave`; pick one with `--theme`, `METOP_THEME`, or `t` while running (no config file). Themes are authored in truecolor and auto-rendered to 256 or 16 colours when the terminal cannot display RGB; `--color` overrides detection.
 
 ## Install
 
@@ -41,24 +41,24 @@ Prebuilt packages are produced by GitHub Actions for `amd64` and `arm64`; every 
 
 | Platform | Asset |
 |---|---|
-| Debian / Ubuntu | `mtop_0.3.0-1_amd64.deb` · `mtop_0.3.0-1_arm64.deb` |
-| Fedora / RHEL / openSUSE | `mtop-0.3.0-1.x86_64.rpm` · `mtop-0.3.0-1.aarch64.rpm` |
-| Any distro | `mtop-v0.3.0-x86_64-unknown-linux-musl.tar.gz` · `…-aarch64-…` |
+| Debian / Ubuntu | `metop_0.4.0-1_amd64.deb` · `metop_0.4.0-1_arm64.deb` |
+| Fedora / RHEL / openSUSE | `metop-0.4.0-1.x86_64.rpm` · `metop-0.4.0-1.aarch64.rpm` |
+| Any distro | `metop-v0.4.0-x86_64-unknown-linux-musl.tar.gz` · `…-aarch64-…` |
 
 ```sh
 # Debian / Ubuntu
-gh release download v0.3.0 --repo baka-world/mtop --pattern '*.deb'
-sudo dpkg -i mtop_0.3.0-1_amd64.deb
+gh release download v0.4.0 --repo baka-world/metop --pattern '*.deb'
+sudo dpkg -i metop_0.4.0-1_amd64.deb
 
 # Fedora / RHEL
-gh release download v0.3.0 --repo baka-world/mtop --pattern '*.rpm'
-sudo rpm -i mtop-0.3.0-1.x86_64.rpm
+gh release download v0.4.0 --repo baka-world/metop --pattern '*.rpm'
+sudo rpm -i metop-0.4.0-1.x86_64.rpm
 
-# From crates.io (installs the `mtop` binary)
+# From crates.io (installs the `metop` binary)
 cargo install metop
 
 # From source
-cargo build --release && sudo install -m755 target/release/mtop /usr/local/bin/
+cargo build --release && sudo install -m755 target/release/metop /usr/local/bin/
 ```
 
 Binaries are statically linked (musl), and the `.deb` has an empty `Depends:`.
@@ -66,14 +66,14 @@ Binaries are statically linked (musl), and the `.deb` has an empty `Depends:`.
 ## Usage
 
 ```
-mtop                       # whole system
-mtop --pid 1234            # start with a process selected
-mtop --theme dracula       # default | btop | dracula | gruvbox-dark |
-                           # kanagawa-wave | light | ansi16 (or MTOP_THEME)
-mtop --color 256           # auto | truecolor | 256 | 16
-mtop --lang zh             # auto | en | zh (or MTOP_LANG / l)
-mtop --json --fields procs.pid,procs.rss_kb
-mtop --diff a.json b.json --min-delta 50M
+metop                       # whole system
+metop --pid 1234            # start with a process selected
+metop --theme dracula       # default | btop | dracula | gruvbox-dark |
+                           # kanagawa-wave | light | ansi16 (or METOP_THEME)
+metop --color 256           # auto | truecolor | 256 | 16
+metop --lang zh             # auto | en | zh (or METOP_LANG / l)
+metop --json --fields procs.pid,procs.rss_kb
+metop --diff a.json b.json --min-delta 50M
 ```
 
 | Key | Action |
@@ -95,7 +95,7 @@ mtop --diff a.json b.json --min-delta 50M
 
 ![help overlay](docs/images/help.png)
 
-Press `?` for a page-specific explanation of the header, columns, colour codes, markers and keys. `--lang auto|en|zh`, `MTOP_LANG` or `l` switch between English and Chinese; the footer buttons are clickable. Screenshots use the `dracula` theme.
+Press `?` for a page-specific explanation of the header, columns, colour codes, markers and keys. `--lang auto|en|zh`, `METOP_LANG` or `l` switch between English and Chinese; the footer buttons are clickable. Screenshots use the `dracula` theme.
 
 ### Process view
 
@@ -126,10 +126,10 @@ Area is PSS by default; `s` switches to USS (private only) or RSS (which overcou
 ## Scripting
 
 ```sh
-mtop --json > a.json                      # one snapshot, stable pid order
-mtop --json --fields procs.pid,procs.rss_kb > small.json   # 194 KB -> 23 KB
-sleep 30; mtop --json > b.json
-mtop --diff a.json b.json --min-delta 50M
+metop --json > a.json                      # one snapshot, stable pid order
+metop --json --fields procs.pid,procs.rss_kb > small.json   # 194 KB -> 23 KB
+sleep 30; metop --json > b.json
+metop --diff a.json b.json --min-delta 50M
 ```
 
 `--diff` prints ΔRSS / ΔPSS, current values and `new`/`gone` markers; the snapshot writer itself is excluded via `self_pid`.
@@ -137,7 +137,7 @@ mtop --diff a.json b.json --min-delta 50M
 ## Requirements and permissions
 
 - Linux with `/proc`; cgroup v2 optional (the view explains its absence).
-- `/proc/PID/smaps_rollup` requires ptrace-read permission: a normal user only sees their own processes (and kernel threads have no address space at all). Run `sudo mtop` for full coverage — verified at `264/264` covered, `denied=0`.
+- `/proc/PID/smaps_rollup` requires ptrace-read permission: a normal user only sees their own processes (and kernel threads have no address space at all). Run `sudo metop` for full coverage — verified at `264/264` covered, `denied=0`.
 - The usage model is documented in [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md); the root checklist is [docs/VERIFY-ROOT.md](docs/VERIFY-ROOT.md).
 
 ## Known issues

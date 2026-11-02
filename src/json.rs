@@ -1,5 +1,5 @@
 //! Machine-readable snapshot for `--json`: stable ordering, explicit units,
-//! so two runs can be diffed (`mtop --json > a; mtop --json > b; diff a b`).
+//! so two runs can be diffed (`metop --json > a; metop --json > b; diff a b`).
 
 use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -180,7 +180,7 @@ fn build_doc(snap: &Snapshot) -> Value {
     });
 
     let doc = json!({
-        "schema": "mtop.snapshot.v1",
+        "schema": "metop.snapshot.v1",
         "at_unix_ms": now_ms,
         // The process that wrote this snapshot. A later --diff must ignore it:
         // its pid is new every run, so it would show up as a phantom +3 MB.
@@ -242,7 +242,7 @@ mod tests {
 
     fn doc() -> Value {
         json!({
-            "schema": "mtop.snapshot.v1",
+            "schema": "metop.snapshot.v1",
             "at_unix_ms": 42,
             "mem": {"total_kb": 1, "avail_kb": 2},
             "procs": [
@@ -273,7 +273,7 @@ mod tests {
     #[test]
     fn meta_keys_are_always_kept() {
         let out = project_str(&["mem.total_kb"]);
-        assert_eq!(out["schema"], "mtop.snapshot.v1");
+        assert_eq!(out["schema"], "metop.snapshot.v1");
         assert_eq!(out["at_unix_ms"], 42);
         assert_eq!(out["mem"], json!({"total_kb": 1}));
     }

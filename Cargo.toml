@@ -1,22 +1,22 @@
 [package]
 name = "metop"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 rust-version = "1.88"
 description = "Linux memory analysis TUI: RSS/PSS/USS per process, VMA drill-down"
 license = "MIT"
-repository = "https://github.com/baka-world/mtop"
-homepage = "https://github.com/baka-world/mtop"
+repository = "https://github.com/baka-world/metop"
+homepage = "https://github.com/baka-world/metop"
 readme = "README.md"
 keywords = ["tui", "memory", "pss", "monitoring", "linux"]
 categories = ["command-line-utilities"]
 
 [lib]
-name = "mtop"
+name = "metop"
 path = "src/lib.rs"
 
 [[bin]]
-name = "mtop"
+name = "metop"
 path = "src/main.rs"
 
 [dependencies]
@@ -31,7 +31,7 @@ serde_json = "1"
 # .deb metadata (cargo-deb). The packaged binary is static musl, so it has no
 # runtime dependencies.
 [package.metadata.deb]
-name = "mtop"
+name = "metop"
 maintainer = "YimoLieu <yimolieu@163.com>"
 copyright = "2026, YimoLieu"
 license-file = ["LICENSE", "4"]
@@ -39,21 +39,21 @@ extended-description = "Linux memory analysis TUI: RSS/PSS/USS per process, VMA 
 section = "utils"
 priority = "optional"
 assets = [
-    ["target/release/mtop", "usr/bin/mtop", "755"],
-    ["README.md", "usr/share/doc/mtop/README.md", "644"],
+    ["target/release/metop", "usr/bin/metop", "755"],
+    ["README.md", "usr/share/doc/metop/README.md", "644"],
 ]
 
 # .rpm metadata (cargo-generate-rpm)
 [package.metadata.generate-rpm]
-name = "mtop"
+name = "metop"
 summary = "Linux memory analysis TUI"
 license = "MIT"
 vendor = "YimoLieu"
-url = "https://github.com/baka-world/mtop"
+url = "https://github.com/baka-world/metop"
 release = "1"
 assets = [
-    { source = "target/release/mtop", dest = "/usr/bin/mtop", mode = "755" },
-    { source = "README.md", dest = "/usr/share/doc/mtop/README.md", mode = "644", doc = true },
+    { source = "target/release/metop", dest = "/usr/bin/metop", mode = "755" },
+    { source = "README.md", dest = "/usr/share/doc/metop/README.md", mode = "644", doc = true },
 ]
 
 [profile.release]
