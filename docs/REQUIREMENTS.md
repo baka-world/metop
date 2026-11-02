@@ -66,6 +66,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | F27 | apps 视图选中并用 `Enter` 下钻到该应用的进程（`Esc` 清除过滤） | 同上 + `selected_row_is_tinted...` 同源的渲染测试 |
 | F28 | treemap 布局不变量：在界内、互不重叠、面积成比例 | `treemap_tiles_stay_inside_and_do_not_overlap`、`treemap_area_is_proportional_within_a_few_percent` |
 | F29 | apps 视图右上角显示选中应用的历史（120 点），按指标分别存储；RSS 模式在标题标注"overcounts shared" | `apps_history_tracks_each_metric_separately`、实机 `▅▇▇█…` |
+| F30 | 七套内置配色：`default`、`btop`、`dracula`、`gruvbox-dark`、`kanagawa-wave`、`light`、`ansi16`；后四套的颜色取自 btop 自带主题文件；`--theme`、`MTOP_THEME`、运行时 `t` 循环；不引入配置文件；默认配色与旧版逐色一致 | `theme.rs` 单测、`theme_key_cycles_the_palette_and_names_it_in_the_footer`、`unknown_theme_is_a_usage_error` |
 
 ## 5. 数据来源与精度
 
@@ -113,6 +114,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | `g`/`G`、`Home`/`End` | 顶部 / 底部 |
 | `s` | 循环排序键（重置选择） |
 | `r` | 反向排序 |
+| `t` | 循环配色主题（`default` → `btop` → `dracula` → `gruvbox-dark` → `kanagawa-wave` → `light` → `ansi16`；立即重绘） |
 | `Tab` | 进程视图 → cgroup 视图 → apps 视图（循环；切换时退出详情与下钻） |
 | `Enter`（cgroup） | 列出该 cgroup 子树内的进程；`Esc` 返回列表 |
 | `Enter`（apps） | 下钻到该应用的进程（进程表加 `app: <name>` 过滤），`Esc` 清除 |
@@ -140,13 +142,13 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | 项 | 状态 |
 |---|---|
 | 功能需求 F1–F23 | 全部实现，逐项有测试或实机抓帧 |
-| 自动化测试 / clippy | 48 tests，0 warning |
+| 自动化测试 / clippy | 78 tests，0 warning |
 | 单文件分发 | `cargo build --release` → 1.4 MB，无运行时依赖 |
 | LICENSE | MIT（与 `Cargo.toml` 一致） |
 | `--version` / `--help` | 已提供，`tests/cli.rs` 覆盖 |
 | root 路径 | 已实测：`procs=447 covered=264 denied=0 no_mm=183`（见 VERIFY-ROOT.md §6） |
 | CI | GitHub Actions：`fmt` / `clippy -D warnings` / 全量测试；打包任务构建 musl 二进制并校验 deb/rpm 的载荷与架构 |
-| 发布产物 | `v0.1.0` 已发布：amd64/arm64 的 `.deb` 与 `.rpm`、静态 musl `.tar.gz`、按目标生成的 `SHA256SUMS` |
+| 发布产物 | `v0.2.0` 已发布：amd64/arm64 的 `.deb` 与 `.rpm`、静态 musl `.tar.gz`、按目标生成的 `SHA256SUMS` |
 | 仓库 | https://github.com/baka-world/mtop（public，MIT） |
 
 ## 10. 里程碑
