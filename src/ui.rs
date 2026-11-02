@@ -340,14 +340,34 @@ fn split_cell_scaled(private_kb: u64, shared_kb: u64, frac: f64, p: &Palette) ->
     Cell::from(Text::from(Line::from(spans)))
 }
 
-fn delta_span(d: i64, dim_color: Color, p: &Palette) -> Span<'static> {
+/// Format the per-tick RSS delta.
+///
+/// `fmt_kb` renders everything below 10 MB with one decimal of MB, so a
+/// one-page change (4 kB) used to print as `+0.0M`. Keep sub-megabyte deltas
+/// in kB: a nonzero change must never look like zero.
+fn delta_text(d: i64) -> String {
     if d == 0 {
-        return styled_span("     0", dim_color);
+        return "     0".to_string();
     }
     let kb = d.unsigned_abs();
     let sign = if d > 0 { "+" } else { "-" };
-    let color = if d > 0 { p.crit } else { p.ok };
-    styled_span(format!("{sign}{:>6}", fmt_kb(kb)), color)
+    let value = if kb < 1024 {
+        format!("{kb}k")
+    } else {
+        fmt_kb(kb)
+    };
+    format!("{sign}{value:>6}")
+}
+
+fn delta_span(d: i64, dim_color: Color, p: &Palette) -> Span<'static> {
+    let color = if d > 0 {
+        p.crit
+    } else if d < 0 {
+        p.ok
+    } else {
+        dim_color
+    };
+    styled_span(delta_text(d), color)
 }
 
 fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
@@ -1144,6 +1164,16 @@ mod tests {
         assert!(super::text_spark(&[], 5).is_empty());
         // Only the last `width` samples are drawn.
         assert_eq!(super::text_spark(&[9, 0, 0, 1], 3), "▁▁█");
+    }
+
+    #[test]
+    fn small_nonzero_deltas_use_kb() {
+        assert_eq!(super::delta_text(0), "     0");
+        assert_eq!(super::delta_text(4), "+    4k");
+        assert_eq!(super::delta_text(-4), "-    4k");
+        assert_eq!(super::delta_text(512), "+  512k");
+        assert_eq!(super::delta_text(1024), "+  1.0M");
+        assert_eq!(super::delta_text(4096), "+  4.0M");
     }
 
     #[test]

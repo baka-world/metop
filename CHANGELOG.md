@@ -22,6 +22,8 @@ version (`0.MINOR.PATCH`).
   selected tile now inverts its own fill and foreground, and the narrow apps
   list draws the selected row's share bar in the tile foreground instead of a
   fill that can match the highlight.
+- Nonzero RSS deltas below 1 MB no longer render as `+0.0M`/`-0.0M`; they are
+  shown in kB (`+4k`), so a real change can never look like zero.
 
 ## [0.2.0] - 2026-11-01
 
