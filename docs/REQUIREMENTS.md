@@ -70,6 +70,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | F32 | 鼠标支持：启用/退出时关闭鼠标捕获；点击表格行/treemap 图块选中，再点一次执行 Enter（详情/展开/下钻）；滚轮滚动；footer 为可点击命令栏，帮助层可滚轮滚动、点击外部关闭 | `mouse_selects_rows_scrolls_and_clicks_footer_buttons`、`mouse_click_selects_a_treemap_tile`、实机 pty 点击 `[? Help]` |
 | F31 | 每个视图（进程 / cgroup / apps / VMA 详情 / cgroup 下钻）有 `?` 帮助面板，解释顶部状态、列含义、标记和按键；支持中英文（`--lang auto\|en\|zh`、`METOP_LANG`、运行时 `l`），不引入配置文件 | `i18n.rs` 单测、`help_overlay_is_per_page_and_bilingual`、`unknown_language_is_a_usage_error` |
 | F33 | `--history SECONDS` 设置进程/apps/cgroup PSI/OOM 共用的时间窗口（默认 120，范围 1–3600 秒）；缺失采样留空 | `histories_share_elapsed_window_and_only_scans_record_cgroup_values`、`long_history_draws_old_and_new_measurements_in_the_header`、`history_requires_a_bounded_positive_integer` |
+| F34 | `--json` 输出不折叠的 `apps` 分组，支持字段投影；PSS/USS 只汇总可读 rollup | `snapshot_is_sorted_and_self_consistent`、`apps_fields_project_each_record` |
 
 ## 5. 数据来源与精度
 
@@ -147,7 +148,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 
 | 项 | 状态 |
 |---|---|
-| 功能需求 F1–F33 | 全部实现，逐项有测试或实机抓帧 |
+| 功能需求 F1–F34 | 全部实现，逐项有测试或实机抓帧 |
 | 自动化测试 / clippy | `cargo test --release` 通过；clippy 无 warning |
 | 单文件分发 | `cargo build --release` → 1.4 MB，无运行时依赖 |
 | LICENSE | MIT（与 `Cargo.toml` 一致） |
@@ -170,7 +171,6 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 
 ### 未做（都是可选增强，不是缺口）
 
-- `--json` 输出 apps 分组结果。
 - 逐 VMA 的 KSM / hugepage / pagemap 元数据。
 - 按视图设置默认指标、配置文件。
 

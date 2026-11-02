@@ -6,6 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
+use crate::apps;
 use crate::model::Snapshot;
 use crate::procfs::Rollup;
 
@@ -29,7 +30,15 @@ fn rollup_json(r: &Rollup) -> Value {
 /// `schema` and `at_unix_ms` are always kept: a document without them cannot be
 /// identified or ordered.
 pub fn render(snap: &Snapshot, fields: &[String]) -> Result<String, String> {
-    let doc = build_doc(snap);
+    let include_apps = fields.is_empty()
+        || fields.iter().any(|field| {
+            field
+                .split('.')
+                .map(str::trim)
+                .find(|part| !part.is_empty())
+                == Some("apps")
+        });
+    let doc = build_doc(snap, include_apps);
     if fields.is_empty() {
         return Ok(pretty(&doc));
     }
@@ -44,7 +53,11 @@ pub fn render(snap: &Snapshot, fields: &[String]) -> Result<String, String> {
         if path.is_empty() {
             return Err(format!("empty field path {raw:?}"));
         }
-        if !exists(&doc, &path) {
+        let empty_apps_field = doc["apps"].as_array().is_some_and(Vec::is_empty)
+            && path.len() == 2
+            && path[0] == "apps"
+            && ["name", "pss_kb", "uss_kb", "rss_kb", "procs", "pids"].contains(&path[1].as_str());
+        if !exists(&doc, &path) && !empty_apps_field {
             return Err(format!(
                 "unknown field path {raw:?}; top-level keys are: {}",
                 doc.as_object()
@@ -131,7 +144,7 @@ fn project(doc: &Value, paths: &[Vec<String>]) -> Value {
     out
 }
 
-fn build_doc(snap: &Snapshot) -> Value {
+fn build_doc(snap: &Snapshot, include_apps: bool) -> Value {
     let now_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
@@ -158,6 +171,24 @@ fn build_doc(snap: &Snapshot) -> Value {
             })
         })
         .collect();
+
+    let apps: Vec<Value> = if include_apps {
+        apps::group(&snap.rows, &snap.pss, &snap.pid_cgroup, &snap.pid_exe)
+            .into_iter()
+            .map(|group| {
+                json!({
+                    "name": group.name,
+                    "pss_kb": group.pss_kb,
+                    "uss_kb": group.uss_kb,
+                    "rss_kb": group.rss_kb,
+                    "procs": group.procs,
+                    "pids": group.pids,
+                })
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
 
     let detail = snap.detail.as_ref().map(|d| {
         json!({
@@ -221,6 +252,7 @@ fn build_doc(snap: &Snapshot) -> Value {
         })).collect::<Vec<_>>(),
         "detail_error": snap.detail_error,
         "detail": detail,
+        "apps": apps,
         "procs": procs,
     });
     doc
@@ -238,7 +270,101 @@ pub fn write_str(text: &str) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::{ProcRow, PssInfo};
     use serde_json::json;
+    use std::collections::{HashMap, HashSet};
+    use std::sync::Arc;
+    use std::time::Instant;
+
+    fn snapshot() -> Snapshot {
+        let now = Instant::now();
+        let row = |pid, comm: &str, rss_kb| ProcRow {
+            pid,
+            comm: comm.into(),
+            rss_kb,
+            delta_kb: 0,
+        };
+        let pss = |pss_kb, uss_kb| PssInfo {
+            rollup: Rollup {
+                pss_kb,
+                uss_kb,
+                ..Default::default()
+            },
+            at: now,
+        };
+        Snapshot {
+            rows: vec![
+                row(30, "helper", 30),
+                row(20, "beta", 20),
+                row(10, "main", 10),
+                row(40, "alpha", 40),
+                row(50, "unreadable", 50),
+            ],
+            pss: HashMap::from([(10, pss(15, 8)), (20, pss(5, 3)), (40, pss(5, 2))]),
+            mem: Default::default(),
+            pressure: Default::default(),
+            scan_seq: 0,
+            cgroups: vec![],
+            pid_cgroup: Arc::new(HashMap::from([
+                (10, "/user/app-browser-123.scope".into()),
+                (30, "/user/app-browser-456.scope".into()),
+            ])),
+            pid_exe: Arc::new(HashMap::from([
+                (10, "/bin/ignored".into()),
+                (20, "/bin/beta".into()),
+            ])),
+            detail: None,
+            detail_error: None,
+            sweep_ms: 0.0,
+            pss_ms: 0.0,
+            covered_pss_kb: 25,
+            covered: 3,
+            denied: HashSet::from([30, 50]),
+            no_mm: HashSet::new(),
+            at: now,
+        }
+    }
+
+    #[test]
+    fn apps_export_complete_groups_and_project_fields() {
+        let snap = snapshot();
+        let doc = build_doc(&snap, true);
+        assert_eq!(
+            doc["apps"],
+            json!([
+                {"name": "browser", "pss_kb": 15, "uss_kb": 8, "rss_kb": 40, "procs": 2, "pids": [10, 30]},
+                {"name": "alpha", "pss_kb": 5, "uss_kb": 2, "rss_kb": 40, "procs": 1, "pids": [40]},
+                {"name": "beta", "pss_kb": 5, "uss_kb": 3, "rss_kb": 20, "procs": 1, "pids": [20]},
+                {"name": "unreadable", "pss_kb": 0, "uss_kb": 0, "rss_kb": 50, "procs": 1, "pids": [50]},
+            ])
+        );
+        let projected: Value = serde_json::from_str(
+            &render(&snap, &["apps.name".into(), "apps.pss_kb".into()]).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            projected["apps"],
+            json!([
+                {"name": "browser", "pss_kb": 15},
+                {"name": "alpha", "pss_kb": 5},
+                {"name": "beta", "pss_kb": 5},
+                {"name": "unreadable", "pss_kb": 0},
+            ])
+        );
+        assert_eq!(projected.as_object().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn empty_apps_allow_known_projected_fields_but_reject_typos() {
+        let mut snap = snapshot();
+        snap.rows.clear();
+        let projected: Value = serde_json::from_str(
+            &render(&snap, &["apps.name".into(), "apps.pss_kb".into()]).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(projected["apps"], json!([]));
+        assert!(render(&snap, &["apps.nope".into()]).is_err());
+    }
 
     fn doc() -> Value {
         json!({

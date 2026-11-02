@@ -41,6 +41,54 @@ fn snapshot_is_sorted_and_self_consistent() {
         "procs are not sorted by pid"
     );
 
+    let apps = v["apps"].as_array().expect("apps array");
+    let by_pid: std::collections::HashMap<u64, &serde_json::Value> = procs
+        .iter()
+        .map(|p| (p["pid"].as_u64().unwrap(), p))
+        .collect();
+    let mut members = Vec::new();
+    let mut names = std::collections::HashSet::new();
+    for app in apps {
+        let name = app["name"].as_str().unwrap();
+        assert!(names.insert(name), "duplicate app {name}");
+        let group_pids: Vec<u64> = app["pids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|pid| pid.as_u64().unwrap())
+            .collect();
+        assert!(!group_pids.is_empty());
+        assert!(group_pids.windows(2).all(|w| w[0] < w[1]));
+        assert_eq!(app["procs"].as_u64().unwrap(), group_pids.len() as u64);
+        let mut rss = 0;
+        let mut pss = 0;
+        let mut uss = 0;
+        for pid in &group_pids {
+            let proc = by_pid.get(pid).expect("app member missing from procs");
+            rss += proc["rss_kb"].as_u64().unwrap();
+            if !proc["pss"].is_null() {
+                pss += proc["pss"]["pss_kb"].as_u64().unwrap();
+                uss += proc["pss"]["uss_kb"].as_u64().unwrap();
+            }
+        }
+        assert_eq!(app["rss_kb"].as_u64().unwrap(), rss);
+        assert_eq!(app["pss_kb"].as_u64().unwrap(), pss);
+        assert_eq!(app["uss_kb"].as_u64().unwrap(), uss);
+        members.extend(group_pids);
+    }
+    assert!(
+        apps.windows(2).all(|pair| {
+            let a = &pair[0];
+            let b = &pair[1];
+            let ap = a["pss_kb"].as_u64().unwrap();
+            let bp = b["pss_kb"].as_u64().unwrap();
+            ap > bp || (ap == bp && a["name"].as_str().unwrap() < b["name"].as_str().unwrap())
+        }),
+        "apps are not sorted by descending PSS and name"
+    );
+    members.sort_unstable();
+    assert_eq!(members, pids, "apps must partition the process list");
+
     let psi = &v["pressure"];
     assert!(psi["some10"].is_number(), "system pressure missing");
     let some = psi["some10"].as_f64().unwrap();
@@ -158,6 +206,21 @@ fn fields_projection_keeps_only_requested_paths() {
     // shrank it (measured: 194 KB -> 23 KB for two fields on this machine).
     assert!(full["mem"]["total_kb"].is_u64());
     assert!(full["procs"][0].get("comm").is_some());
+}
+
+#[test]
+fn apps_fields_project_each_record() {
+    let filtered = run(&["--json", "--fields", "apps.name,apps.pss_kb"]);
+    assert_eq!(filtered.as_object().unwrap().len(), 3);
+    assert_eq!(filtered["schema"], "metop.snapshot.v1");
+    assert!(filtered["at_unix_ms"].is_u64());
+    let apps = filtered["apps"].as_array().unwrap();
+    assert!(!apps.is_empty());
+    for app in apps {
+        assert_eq!(app.as_object().unwrap().len(), 2);
+        assert!(app["name"].is_string());
+        assert!(app["pss_kb"].is_u64());
+    }
 }
 
 #[test]

@@ -12,6 +12,8 @@ version (`0.MINOR.PATCH`).
 
 - A configurable shared trend window (`--history`, 1–3600 seconds; default
   120) for process, app, cgroup PSI and OOM histories.
+- Uncollapsed application groups in JSON snapshots, including memory totals,
+  process counts and PIDs, with `--fields` projection support.
 
 ## [0.4.0] - 2026-11-01
 

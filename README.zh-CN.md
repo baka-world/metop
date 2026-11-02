@@ -132,9 +132,12 @@ metop --diff a.json b.json --min-delta 50M
 ```sh
 metop --json > a.json                                      # 一次快照，PID 稳定排序
 metop --json --fields procs.pid,procs.rss_kb > small.json  # 194 KB -> 23 KB
+metop --json --fields apps.name,apps.pss_kb > apps.json
 sleep 30; metop --json > b.json
 metop --diff a.json b.json --min-delta 50M
 ```
+
+快照的 `apps` 数组包含全部应用分组，不会像 treemap 那样折叠为 `others`。每组有 `name`、`pss_kb`、`uss_kb`、`rss_kb`、`procs` 和已排序的 `pids`；分组按 PSS 降序、名称升序排列。PSS 和 USS 只汇总可读取的 rollup，可能是不完整值。
 
 `--diff` 输出 ΔRSS / ΔPSS、当前值与 `new`/`gone` 标记；写快照的进程本身按 `self_pid` 排除。
 
@@ -154,7 +157,6 @@ metop --diff a.json b.json --min-delta 50M
 
 ## TODO
 
-- `--json` 输出 apps 分组。
 - 可选：逐 VMA 的 KSM / hugepage / pagemap 元数据（`wora-observability-linux-mm`）。
 - 可选：按视图设置默认指标、配置文件。
 

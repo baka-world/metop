@@ -132,9 +132,12 @@ All trend views use the same elapsed-time window (`--history`, 120 seconds by de
 ```sh
 metop --json > a.json                      # one snapshot, stable pid order
 metop --json --fields procs.pid,procs.rss_kb > small.json   # 194 KB -> 23 KB
+metop --json --fields apps.name,apps.pss_kb > apps.json
 sleep 30; metop --json > b.json
 metop --diff a.json b.json --min-delta 50M
 ```
+
+The snapshot's `apps` array contains every application group without the treemap's `others` folding. Each record has `name`, `pss_kb`, `uss_kb`, `rss_kb`, `procs` and sorted `pids`; groups are sorted by descending PSS, then name. PSS and USS sum only readable rollups and can therefore be partial.
 
 `--diff` prints ΔRSS / ΔPSS, current values and `new`/`gone` markers; the snapshot writer itself is excluded via `self_pid`.
 
@@ -154,7 +157,6 @@ metop --diff a.json b.json --min-delta 50M
 
 ## TODO
 
-- Include app groups in `--json`.
 - Optional: KSM / hugepage / pagemap metadata per VMA (via `wora-observability-linux-mm`).
 - Optional: per-view metric defaults and a config file.
 
