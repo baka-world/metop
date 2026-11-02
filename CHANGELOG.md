@@ -15,7 +15,8 @@ version (`0.MINOR.PATCH`).
 - Uncollapsed application groups in JSON snapshots, including memory totals,
   process counts and PIDs, with `--fields` projection support.
 - Vim-style `/` shortcut for filtering, alongside the existing `f` key.
-- Vim-style half-page and full-page navigation.
+- Vim-style half-page and full-page navigation, plus `Ctrl-w` and `Ctrl-u`
+  editing in filter inputs.
 
 ### Changed
 

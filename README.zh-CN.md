@@ -91,6 +91,7 @@ metop --diff a.json b.json --min-delta 50M
 | `l` | 切换界面语言（English / 中文） |
 | 鼠标 | 点击行/图块选中，再点一次打开或下钻；滚轮滚动；footer 按钮可点击 |
 | `/` 或 `f` | 过滤（进程名、PID、应用名、cgroup 路径、映射名） |
+| `Ctrl-w` / `Ctrl-u`（过滤输入中） | 删除前一个词 / 清空输入 |
 | `Enter` | 详情 / 展开映射 / 下钻 cgroup 或 app |
 | `Esc` | 清除过滤、退出详情或下钻 |
 | `q` | 退出 |

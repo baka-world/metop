@@ -232,10 +232,22 @@ impl T {
 
     pub fn editing(&self, detail: bool) -> (&'static str, &'static str) {
         match (self.is_zh(), detail) {
-            (false, false) => (" filter: ", "   Enter apply · Esc cancel"),
-            (false, true) => (" vma filter: ", "   Enter apply · Esc cancel"),
-            (true, false) => (" 过滤: ", "   Enter 应用 · Esc 取消"),
-            (true, true) => (" VMA 过滤: ", "   Enter 应用 · Esc 取消"),
+            (false, false) => (
+                " filter: ",
+                "   Enter apply · Esc cancel · Ctrl-w word · Ctrl-u clear",
+            ),
+            (false, true) => (
+                " vma filter: ",
+                "   Enter apply · Esc cancel · Ctrl-w word · Ctrl-u clear",
+            ),
+            (true, false) => (
+                " 过滤: ",
+                "   Enter 应用 · Esc 取消 · Ctrl-w 删词 · Ctrl-u 清空",
+            ),
+            (true, true) => (
+                " VMA 过滤: ",
+                "   Enter 应用 · Esc 取消 · Ctrl-w 删词 · Ctrl-u 清空",
+            ),
         }
     }
 

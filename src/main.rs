@@ -37,6 +37,7 @@ OPTIONS:
 KEYS:
     j/k, ↑/↓        move selection          g/G     top / bottom
     Ctrl-d/u        half page               Ctrl-f/b full page
+    Ctrl-w/u        delete word / clear filter input
     s               cycle sort key          r       reverse order
     t               cycle colour theme      l       switch language
     ?               page help               Tab     switch view

@@ -941,6 +941,12 @@ impl App {
             KeyCode::Backspace => {
                 self.edit_buf.pop();
             }
+            KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.edit_buf.clear();
+            }
+            KeyCode::Char('w') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                delete_previous_word(&mut self.edit_buf);
+            }
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => return true,
             KeyCode::Char(c) => self.edit_buf.push(c),
             _ => {}
@@ -1057,6 +1063,24 @@ fn page_key(key: &KeyEvent) -> Option<(isize, bool)> {
 
 fn page_distance(rows: usize, half: bool) -> isize {
     (if half { rows / 2 } else { rows }).max(1) as isize
+}
+
+fn delete_previous_word(text: &mut String) {
+    let trimmed = text.trim_end_matches(char::is_whitespace);
+    let Some(last) = trimmed.chars().next_back() else {
+        text.clear();
+        return;
+    };
+    let is_word = |c: char| c.is_alphanumeric() || c == '_';
+    let kind = is_word(last);
+    let start = trimmed
+        .char_indices()
+        .rev()
+        .take_while(|(_, c)| !c.is_whitespace() && is_word(*c) == kind)
+        .last()
+        .map(|(index, _)| index)
+        .unwrap_or(trimmed.len());
+    text.truncate(start);
 }
 
 fn step(cur: usize, delta: isize, n: usize) -> usize {

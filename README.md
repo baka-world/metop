@@ -91,6 +91,7 @@ metop --diff a.json b.json --min-delta 50M
 | `l` | switch UI language (English / 中文) |
 | Mouse | click rows/tiles to select, click again to open or drill; wheel scrolls; footer buttons are clickable |
 | `/` or `f` | filter (process name, pid, app name, cgroup path, mapping name) |
+| `Ctrl-w` / `Ctrl-u` (filter input) | delete the previous word / clear the input |
 | `Enter` | detail / expand mapping / drill into a cgroup or an app |
 | `Esc` | clear filter, leave detail or drill-down |
 | `q` | quit |

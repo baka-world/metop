@@ -477,6 +477,53 @@ fn vim_paging_uses_the_current_viewport_and_preserves_filter_key() {
 }
 
 #[test]
+fn filter_control_keys_edit_unicode_paths_and_cancel_safely() {
+    use metop::app::View;
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    let mut app = App::new(None);
+    app.on_snapshot(snapshot());
+    app.view = View::Cgroups;
+    app.filter = "user".into();
+    let ctrl = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL);
+    let plain = |code| KeyEvent::new(code, KeyModifiers::NONE);
+
+    app.on_key(plain(KeyCode::Char('/')));
+    app.on_key(ctrl('u'));
+    for c in "/测试/无效   ".chars() {
+        app.on_key(plain(KeyCode::Char(c)));
+    }
+    app.on_key(ctrl('w'));
+    assert_eq!(app.edit_buf, "/测试/");
+    app.on_key(ctrl('u'));
+    for c in "/system.slice".chars() {
+        app.on_key(plain(KeyCode::Char(c)));
+    }
+    app.on_key(plain(KeyCode::Enter));
+    assert_eq!(
+        app.visible_cgroups()
+            .iter()
+            .map(|cg| cg.path.as_str())
+            .collect::<Vec<_>>(),
+        vec!["/system.slice"]
+    );
+
+    app.on_key(plain(KeyCode::Char('f')));
+    app.on_key(ctrl('u'));
+    for c in "user".chars() {
+        app.on_key(plain(KeyCode::Char(c)));
+    }
+    app.on_key(plain(KeyCode::Esc));
+    assert_eq!(
+        app.visible_cgroups()
+            .iter()
+            .map(|cg| cg.path.as_str())
+            .collect::<Vec<_>>(),
+        vec!["/system.slice"]
+    );
+}
+
+#[test]
 fn detail_view_shows_grouped_vmas() {
     let mut app = App::new(None);
     app.on_snapshot(snapshot());
