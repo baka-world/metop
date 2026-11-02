@@ -3,6 +3,8 @@
 [![CI](https://github.com/baka-world/mtop/actions/workflows/ci.yml/badge.svg)](https://github.com/baka-world/mtop/actions/workflows/ci.yml)
 [![Release](https://github.com/baka-world/mtop/actions/workflows/release.yml/badge.svg)](https://github.com/baka-world/mtop/actions/workflows/release.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Crates.io](https://img.shields.io/crates/v/metop.svg)](https://crates.io/crates/metop)
+[![docs.rs](https://docs.rs/metop/badge.svg)](https://docs.rs/metop)
 
 **English** · [简体中文](README.zh-CN.md)
 
