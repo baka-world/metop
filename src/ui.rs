@@ -4,7 +4,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Sparkline, Table};
 
-use crate::app::{App, DetailRow, View};
+use crate::app::{App, DetailRow, FooterAction, Hit, MouseTarget, View};
 use crate::cgroup::CgroupMem;
 use crate::i18n::T;
 use crate::model::{PSS_MAX_AGE, SortKey};
@@ -27,6 +27,28 @@ const MIX_W: usize = 16;
 /// Default-theme highlight background, kept public for tests and callers that
 /// need the built-in value.
 pub const HL_BG: Color = Palette::DEFAULT.highlight_bg;
+
+/// Record clickable table rows for the mouse handler. `rows_start` is the y of
+/// the first data row; `max_rows` excludes header/border rows.
+fn push_row_hits(
+    app: &mut App,
+    area: Rect,
+    offset: usize,
+    count: usize,
+    rows_start: u16,
+    max_rows: usize,
+) {
+    for index in 0..max_rows.min(count.saturating_sub(offset)) {
+        let y = rows_start.saturating_add(index as u16);
+        if y >= area.y.saturating_add(area.height) {
+            break;
+        }
+        app.hits.push(Hit {
+            rect: Rect::new(area.x.saturating_add(1), y, area.width.saturating_sub(2), 1),
+            target: MouseTarget::Row(offset + index),
+        });
+    }
+}
 
 const SPARK_LEVELS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
@@ -72,6 +94,7 @@ fn truncate(s: &str, n: usize) -> String {
 
 pub fn draw(f: &mut Frame, app: &mut App) {
     let area = f.area();
+    app.hits.clear();
     let t = T(app.lang);
     let chunks = Layout::vertical([
         Constraint::Length(4),
@@ -454,6 +477,7 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
         return;
     };
     let visible = app.visible();
+    let row_count = visible.len();
     let max_rss = visible.iter().map(|r| r.rss_kb).max().unwrap_or(1).max(1);
     let total = snap.mem.total_kb.max(1);
 
@@ -581,7 +605,16 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
     .highlight_symbol("▸");
 
     f.render_stateful_widget(table, area, &mut state);
+    let offset = state.offset();
     app.table_state = state;
+    push_row_hits(
+        app,
+        area,
+        offset,
+        row_count,
+        area.y + 2,
+        area.height.saturating_sub(3) as usize,
+    );
 }
 
 fn apps_view(f: &mut Frame, area: Rect, app: &mut App) {
@@ -671,6 +704,10 @@ fn apps_view(f: &mut Frame, area: Rect, app: &mut App) {
                 Style::new().bg(bg).fg(fg),
             );
         }
+        app.hits.push(Hit {
+            rect: *r,
+            target: MouseTarget::Tile(i),
+        });
     }
 }
 
@@ -731,7 +768,16 @@ fn apps_list(f: &mut Frame, area: Rect, app: &mut App, apps: &[crate::apps::AppG
     .row_highlight_style(p.highlight())
     .highlight_symbol("▸");
     f.render_stateful_widget(table, area, &mut state);
+    let offset = state.offset();
     app.app_state = state;
+    push_row_hits(
+        app,
+        area,
+        offset,
+        apps.len(),
+        area.y + 1,
+        area.height.saturating_sub(1) as usize,
+    );
 }
 
 fn cgroup_drill(f: &mut Frame, area: Rect, app: &mut App) {
@@ -743,6 +789,7 @@ fn cgroup_drill(f: &mut Frame, area: Rect, app: &mut App) {
         return;
     };
     let members = app.cgroup_members();
+    let member_count = members.len();
     let cg = snap.cgroups.iter().find(|c| c.path == path);
     let chunks = Layout::vertical([Constraint::Length(3), Constraint::Min(4)]).split(area);
 
@@ -845,7 +892,16 @@ fn cgroup_drill(f: &mut Frame, area: Rect, app: &mut App) {
     .highlight_symbol("▸");
 
     f.render_stateful_widget(table, chunks[1], &mut state);
+    let offset = state.offset();
     app.drill_state = state;
+    push_row_hits(
+        app,
+        chunks[1],
+        offset,
+        member_count,
+        chunks[1].y + 2,
+        chunks[1].height.saturating_sub(3) as usize,
+    );
 }
 
 fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
@@ -868,6 +924,7 @@ fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
     }
 
     let visible = app.visible_cgroups();
+    let row_count = visible.len();
     let max_cur = snap
         .cgroups
         .iter()
@@ -977,7 +1034,16 @@ fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
     .highlight_symbol("▸");
 
     f.render_stateful_widget(table, area, &mut state);
+    let offset = state.offset();
     app.cgroup_state = state;
+    push_row_hits(
+        app,
+        area,
+        offset,
+        row_count,
+        area.y + 2,
+        area.height.saturating_sub(3) as usize,
+    );
 }
 
 fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
@@ -1050,6 +1116,7 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
     );
 
     let detail_rows = app.detail_rows();
+    let row_count = detail_rows.len();
     let max_pss = detail_rows
         .iter()
         .filter_map(|row| match row {
@@ -1144,10 +1211,83 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
     .row_highlight_style(p.highlight());
 
     f.render_stateful_widget(table, chunks[1], &mut state);
+    let offset = state.offset();
     app.detail_state = state;
+    push_row_hits(
+        app,
+        chunks[1],
+        offset,
+        row_count,
+        chunks[1].y + 2,
+        chunks[1].height.saturating_sub(3) as usize,
+    );
 }
 
-fn footer(f: &mut Frame, area: Rect, app: &App) {
+fn footer_buttons(app: &App, t: &T) -> Vec<(String, FooterAction)> {
+    let mut buttons = vec![
+        (t.pick("? Help", "? 帮助").to_string(), FooterAction::Help),
+        (t.pick("q Quit", "q 退出").to_string(), FooterAction::Quit),
+        (t.pick("l Lang", "l 语言").to_string(), FooterAction::Lang),
+        (t.pick("t Theme", "t 主题").to_string(), FooterAction::Theme),
+        (
+            t.pick("Tab View", "Tab 视图").to_string(),
+            FooterAction::View,
+        ),
+    ];
+    if app.view == View::Apps {
+        buttons.push((t.pick("s Metric", "s 指标").into(), FooterAction::Sort));
+    } else {
+        buttons.push((t.pick("s Sort", "s 排序").into(), FooterAction::Sort));
+        buttons.push((t.pick("r Rev", "r 反向").into(), FooterAction::Reverse));
+    }
+    buttons.push((t.pick("f Filter", "f 过滤").into(), FooterAction::Filter));
+    if !(app.view == View::Cgroups && app.drill.is_some()) {
+        let label = match (app.view, app.detail) {
+            (View::Apps, _) => t.pick("Enter Drill", "Enter 下钻"),
+            (View::Cgroups, _) => t.pick("Enter Procs", "Enter 进程"),
+            (View::Procs, true) => t.pick("Enter Expand", "Enter 展开"),
+            (View::Procs, false) => t.pick("Enter Detail", "Enter 详情"),
+        };
+        buttons.push((label.into(), FooterAction::Enter));
+    }
+    let clearing = app.pid_filter.is_some()
+        || (app.detail && !app.detail_filter.is_empty())
+        || (!app.detail && !app.filter.is_empty());
+    if clearing {
+        buttons.push((t.pick("Esc Clear", "Esc 清除").into(), FooterAction::Back));
+    } else if app.detail || (app.view == View::Cgroups && app.drill.is_some()) {
+        buttons.push((t.pick("Esc Back", "Esc 返回").into(), FooterAction::Back));
+    }
+    buttons
+}
+
+fn footer_line(app: &mut App, t: &T, p: Palette, area: Rect) -> Line<'static> {
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut x = area.x;
+    for (label, action) in footer_buttons(app, t) {
+        let text = format!("[{label}]");
+        let width = Line::from(text.as_str()).width() as u16;
+        if width == 0 || x.saturating_add(width) > area.x.saturating_add(area.width) {
+            break;
+        }
+        spans.push(Span::styled(
+            text,
+            Style::new().fg(p.accent).add_modifier(Modifier::BOLD),
+        ));
+        app.hits.push(Hit {
+            rect: Rect::new(x, area.y, width, 1),
+            target: MouseTarget::Button(action),
+        });
+        x = x.saturating_add(width);
+        if x < area.x.saturating_add(area.width) {
+            spans.push(Span::raw(" "));
+            x = x.saturating_add(1);
+        }
+    }
+    Line::from(spans)
+}
+
+fn footer(f: &mut Frame, area: Rect, app: &mut App) {
     let p = app.theme.palette;
     let t = T(app.lang);
     let line = if app.editing {
@@ -1158,25 +1298,8 @@ fn footer(f: &mut Frame, area: Rect, app: &App) {
             Span::styled("▏", Style::new().fg(p.focus)),
             Span::styled(hint, Style::new().fg(p.dim)),
         ])
-    } else if app.view == View::Apps {
-        Line::from(Span::styled(
-            t.apps_footer(app.app_metric.label()),
-            Style::new().fg(p.dim),
-        ))
-    } else if app.drill.is_some() {
-        Line::from(Span::styled(t.drill_footer(), Style::new().fg(p.dim)))
-    } else if app.view == View::Cgroups {
-        Line::from(Span::styled(
-            t.cgroups_footer(app.cgroup_sort.label()),
-            Style::new().fg(p.dim),
-        ))
-    } else if app.detail {
-        Line::from(Span::styled(t.detail_footer(), Style::new().fg(p.dim)))
     } else {
-        Line::from(Span::styled(
-            t.procs_footer(app.sort.label()),
-            Style::new().fg(p.dim),
-        ))
+        footer_line(app, &t, p, area)
     };
     let mut legend = vec![Span::styled(
         t.theme_line(app.theme.name),
@@ -1203,7 +1326,7 @@ fn footer(f: &mut Frame, area: Rect, app: &App) {
 
 /// Centered, scrollable per-page help. The underlying view keeps rendering so
 /// the user can still see the data behind the overlay.
-fn help_overlay(f: &mut Frame, area: Rect, app: &App) {
+fn help_overlay(f: &mut Frame, area: Rect, app: &mut App) {
     let Some(help) = &app.help else {
         return;
     };
@@ -1220,6 +1343,10 @@ fn help_overlay(f: &mut Frame, area: Rect, app: &App) {
         height,
     );
     f.render_widget(Clear, rect);
+    app.hits.push(Hit {
+        rect,
+        target: MouseTarget::HelpArea,
+    });
 
     let mut lines: Vec<Line> = Vec::new();
     for section in doc.sections {

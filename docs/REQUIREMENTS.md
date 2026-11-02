@@ -67,6 +67,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | F28 | treemap 布局不变量：在界内、互不重叠、面积成比例 | `treemap_tiles_stay_inside_and_do_not_overlap`、`treemap_area_is_proportional_within_a_few_percent` |
 | F29 | apps 视图右上角显示选中应用的历史（120 点），按指标分别存储；RSS 模式在标题标注"overcounts shared" | `apps_history_tracks_each_metric_separately`、实机 `▅▇▇█…` |
 | F30 | 七套内置配色：`default`、`btop`、`dracula`、`gruvbox-dark`、`kanagawa-wave`、`light`、`ansi16`；后四套的颜色取自 btop 自带主题文件；`--theme`、`MTOP_THEME`、运行时 `t` 循环；不引入配置文件；默认主题的 chrome 配色（高亮/标题/严重度/treemap）与旧版逐色一致，PSS 构成使用主题色板且四类颜色互异；按终端能力自动以真彩/256/16 色渲染（btop 的 6×6×6 + 灰阶量化规则），`--color auto\|truecolor\|256\|16` 可覆盖 | `theme.rs` 单测（含量化）、`theme_key_cycles_...`、`ansi256_rendering_uses_indexed_colours_only`、`unknown_colour_mode_is_a_usage_error` |
+| F32 | 鼠标支持：启用/退出时关闭鼠标捕获；点击表格行/treemap 图块选中，再点一次执行 Enter（详情/展开/下钻）；滚轮滚动；footer 为可点击命令栏，帮助层可滚轮滚动、点击外部关闭 | `mouse_selects_rows_scrolls_and_clicks_footer_buttons`、`mouse_click_selects_a_treemap_tile`、实机 pty 点击 `[? Help]` |
 | F31 | 每个视图（进程 / cgroup / apps / VMA 详情 / cgroup 下钻）有 `?` 帮助面板，解释顶部状态、列含义、标记和按键；支持中英文（`--lang auto\|en\|zh`、`MTOP_LANG`、运行时 `l`），不引入配置文件 | `i18n.rs` 单测、`help_overlay_is_per_page_and_bilingual`、`unknown_language_is_a_usage_error` |
 
 ## 5. 数据来源与精度
@@ -115,6 +116,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | `g`/`G`、`Home`/`End` | 顶部 / 底部 |
 | `s` | 循环排序键（重置选择） |
 | `r` | 反向排序 |
+| 鼠标 | 点击行/图块选中，再点一次执行 Enter；滚轮滚动；footer 按钮可点击 |
 | `?` | 打开当前页面帮助（进程/cgroup/apps/详情/下钻），`Esc`/`?`/`q` 关闭，`j/k` 滚动，`l` 切语言 |
 | `l` | 切换界面语言（English / 中文） |
 | `t` | 循环配色主题（`default` → `btop` → `dracula` → `gruvbox-dark` → `kanagawa-wave` → `light` → `ansi16`；立即重绘） |
@@ -145,7 +147,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | 项 | 状态 |
 |---|---|
 | 功能需求 F1–F23 | 全部实现，逐项有测试或实机抓帧 |
-| 自动化测试 / clippy | 96 tests，0 warning |
+| 自动化测试 / clippy | 98 tests，0 warning |
 | 单文件分发 | `cargo build --release` → 1.4 MB，无运行时依赖 |
 | LICENSE | MIT（与 `Cargo.toml` 一致） |
 | `--version` / `--help` | 已提供，`tests/cli.rs` 覆盖 |
