@@ -696,9 +696,10 @@ fn apps_list(f: &mut Frame, area: Rect, app: &mut App, apps: &[crate::apps::AppG
                 bar_cell(
                     frac,
                     if i == app.app_sel {
-                        // A treemap fill can match the row highlight (notably
-                        // in the light theme); the tile foreground cannot.
-                        p.tile_fg
+                        // Bright tiles use a dark tile_fg, which would vanish
+                        // on the selected row's background; dim_selected is
+                        // chosen to contrast with that background.
+                        p.dim_selected
                     } else {
                         p.treemap[i % p.treemap.len()]
                     },
@@ -1181,14 +1182,21 @@ fn footer(f: &mut Frame, area: Rect, app: &App) {
         t.theme_line(app.theme.name),
         Style::new().fg(p.dim),
     )];
-    for (color, label) in [
-        (p.anon, "anon"),
-        (p.file, "file"),
-        (p.shmem, "shmem"),
-        (p.swap, "swap"),
-    ] {
-        legend.push(Span::styled("█", Style::new().fg(color)));
-        legend.push(Span::styled(format!("{label} "), Style::new().fg(p.dim)));
+    // The legend belongs to the PSS MIX column; other views must not show it.
+    if app.view == View::Procs && !app.detail {
+        legend.push(Span::styled(
+            t.pick(" · mix ", " · 构成 "),
+            Style::new().fg(p.dim),
+        ));
+        for (color, label) in [
+            (p.anon, "anon"),
+            (p.file, "file"),
+            (p.shmem, "shmem"),
+            (p.swap, "swap"),
+        ] {
+            legend.push(Span::styled("█", Style::new().fg(color)));
+            legend.push(Span::styled(format!("{label} "), Style::new().fg(p.dim)));
+        }
     }
     f.render_widget(Paragraph::new(vec![line, Line::from(legend)]), area);
 }

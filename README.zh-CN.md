@@ -24,7 +24,7 @@ RSS 会把每个共享页在每个进程里各算一遍，多进程应用因此�
 
 ## 功能
 
-- **进程视图**：RSS / PSS / USS / PSS÷RSS / Δ·s⁻¹，SHARE 条与固定色板的 PSS 构成条（footer 带图例）。
+- **进程视图**：RSS / PSS / USS / PSS÷RSS / Δ·s⁻¹，SHARE 条与主题色板的 PSS 构成条（图例仅在进程视图显示）。
 - **VMA 详情**：按映射聚合，再展开成逐 VMA（地址区间、权限、PSS/USS/anon/swap/size）。
 - **cgroup v2 视图**：`memory.current` / `memory.stat` / `memory.max` / `memory.events`、PSI（`some`/`full`）、OOM 增量，并能下钻到子树里的进程。
 - **apps treemap**：按应用聚合（systemd `app-*.scope` → exe → comm），面积 ∝ PSS，长尾折叠为 `others`。

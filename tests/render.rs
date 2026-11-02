@@ -460,22 +460,40 @@ fn pss_mix_bar_has_distinct_segment_colors() {
         .collect();
 
     assert!(
-        colors.iter().any(|c| c.contains("Rgb(86, 180, 233)")),
+        colors.iter().any(|c| c.contains("Magenta")),
         "anon segment missing: {colors:?}"
     );
     assert!(
-        colors.iter().any(|c| c.contains("Rgb(0, 158, 115)")),
+        colors.iter().any(|c| c.contains("Cyan")),
         "file segment missing: {colors:?}"
     );
 }
 
 #[test]
 fn pss_mix_footer_has_a_legend() {
+    use mtop::app::View;
+
     let mut app = App::new(None);
     app.on_snapshot(snapshot());
     let text = render(&mut app);
     for label in ["mix", "anon", "file", "shmem", "swap"] {
         assert!(text.contains(label), "legend missing {label}:\n{text}");
+    }
+
+    // Only the process table has a PSS MIX column, so other views must not
+    // advertise its legend.
+    for (view, detail) in [
+        (View::Cgroups, false),
+        (View::Apps, false),
+        (View::Procs, true),
+    ] {
+        app.view = view;
+        app.detail = detail;
+        let text = render(&mut app);
+        assert!(
+            !text.contains("mix █"),
+            "PSS legend leaked into {view:?} (detail={detail}):\n{text}"
+        );
     }
 }
 
@@ -1051,7 +1069,7 @@ fn apps_view_falls_back_to_a_list_when_narrow() {
         .collect();
     assert!(!bars.is_empty(), "selected row has no share bar");
     assert!(
-        bars.iter().all(|color| *color == p.tile_fg),
+        bars.iter().all(|color| *color == p.dim_selected),
         "selected share bar should contrast with the highlight: {bars:?}"
     );
     assert!(!bars.contains(&p.highlight_bg));
