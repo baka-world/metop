@@ -249,8 +249,8 @@ impl T {
 
     pub fn help_footer(&self) -> &'static str {
         self.pick(
-            " Esc/? close · j/k scroll · PgUp/PgDn · g/G · l language ",
-            " Esc/? 关闭 · j/k 滚动 · PgUp/PgDn · g/G · l 语言 ",
+            " Esc/? close · j/k scroll · Ctrl-d/u half · Ctrl-f/b page · g/G · l ",
+            " Esc/? 关闭 · j/k 滚动 · Ctrl-d/u 半页 · Ctrl-f/b 翻页 · g/G · l ",
         )
     }
 

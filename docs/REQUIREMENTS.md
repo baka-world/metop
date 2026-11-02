@@ -71,6 +71,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | F31 | 每个视图（进程 / cgroup / apps / VMA 详情 / cgroup 下钻）有 `?` 帮助面板，解释顶部状态、列含义、标记和按键；支持中英文（`--lang auto\|en\|zh`、`METOP_LANG`、运行时 `l`），不引入配置文件 | `i18n.rs` 单测、`help_overlay_is_per_page_and_bilingual`、`unknown_language_is_a_usage_error` |
 | F33 | `--history SECONDS` 设置进程/apps/cgroup PSI/OOM 共用的时间窗口（默认 120，范围 1–3600 秒）；缺失采样留空 | `histories_share_elapsed_window_and_only_scans_record_cgroup_values`、`long_history_draws_old_and_new_measurements_in_the_header`、`history_requires_a_bounded_positive_integer` |
 | F34 | `--json` 输出不折叠的 `apps` 分组，支持字段投影；PSS/USS 只汇总可读 rollup | `snapshot_is_sorted_and_self_consistent`、`apps_fields_project_each_record` |
+| F35 | `Ctrl-d/u` 按实际视口翻半屏；`Ctrl-f/b` 与 `PgDn/PgUp` 翻整屏 | `vim_paging_uses_the_current_viewport_and_preserves_filter_key`、`help_paging_uses_wrapped_viewport_and_can_move_back_from_end` |
 
 ## 5. 数据来源与精度
 
@@ -114,7 +115,8 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | 按键 | 行为 |
 |---|---|
 | `j`/`k`、`↑`/`↓` | 移动选择（详情视图内滚动映射） |
-| `PgUp`/`PgDn` | 翻 10 行 |
+| `Ctrl-d` / `Ctrl-u` | 按实际视口向下 / 向上移动半屏 |
+| `Ctrl-f` / `Ctrl-b`、`PgDn` / `PgUp` | 按实际视口向下 / 向上移动整屏 |
 | `g`/`G`、`Home`/`End` | 顶部 / 底部 |
 | `s` | 循环排序键（重置选择） |
 | `r` | 反向排序 |
@@ -148,7 +150,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 
 | 项 | 状态 |
 |---|---|
-| 功能需求 F1–F34 | 全部实现，逐项有测试或实机抓帧 |
+| 功能需求 F1–F35 | 全部实现，逐项有测试或实机抓帧 |
 | 自动化测试 / clippy | `cargo test --release` 通过；clippy 无 warning |
 | 单文件分发 | `cargo build --release` → 1.4 MB，无运行时依赖 |
 | LICENSE | MIT（与 `Cargo.toml` 一致） |

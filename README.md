@@ -81,7 +81,9 @@ metop --diff a.json b.json --min-delta 50M
 | Key | Action |
 |---|---|
 | `Tab` | cycle views: processes → cgroups → apps |
-| `j`/`k`, `↑`/`↓`, `PgUp`/`PgDn` | move |
+| `j`/`k`, `↑`/`↓` | move one row |
+| `Ctrl-d` / `Ctrl-u` | move down / up half a viewport |
+| `Ctrl-f` / `Ctrl-b`, `PgDn` / `PgUp` | move down / up a full viewport |
 | `g`/`G` | top / bottom |
 | `s` / `r` | cycle sort key (apps: metric) / reverse |
 | `t` | cycle colour theme (7 built-in palettes) |

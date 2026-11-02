@@ -191,6 +191,10 @@ pub struct App {
     pub help: Option<HelpState>,
     /// Click targets recorded by the last draw.
     pub hits: Vec<Hit>,
+    /// Content area from the last frame, used to calculate page movement.
+    pub(crate) page_area: Rect,
+    pub(crate) help_page_rows: u16,
+    pub(crate) help_max_scroll: u16,
     pub sort: SortKey,
     pub cgroup_sort: CgroupSort,
     pub cgroup_sel: usize,
@@ -256,6 +260,9 @@ impl App {
             lang: Lang::En,
             help: None,
             hits: Vec::new(),
+            page_area: Rect::default(),
+            help_page_rows: 10,
+            help_max_scroll: u16::MAX,
             sort: SortKey::Rss,
             cgroup_sort: CgroupSort::Current,
             cgroup_sel: 0,
@@ -595,11 +602,12 @@ impl App {
 
     fn help_scroll(&mut self, delta: i32) {
         if let Some(help) = &mut self.help {
-            help.scroll = if delta >= 0 {
+            let next = if delta >= 0 {
                 help.scroll.saturating_add(delta as u16)
             } else {
                 help.scroll.saturating_sub((-delta) as u16)
             };
+            help.scroll = next.min(self.help_max_scroll);
         }
     }
 
@@ -650,6 +658,7 @@ impl App {
     }
 
     fn open_help(&mut self) {
+        self.help_max_scroll = u16::MAX;
         self.help = Some(HelpState {
             page: self.help_page(),
             scroll: 0,
@@ -835,14 +844,17 @@ impl App {
             return false;
         }
         if self.help.is_some() {
+            if let Some((direction, half)) = page_key(&key) {
+                let distance = page_distance(self.help_page_rows as usize, half);
+                self.help_scroll((direction * distance) as i32);
+                return false;
+            }
             match key.code {
                 KeyCode::Char('q') => return true,
                 KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => return true,
                 KeyCode::Esc | KeyCode::Char('?') => self.help = None,
                 KeyCode::Char('j') | KeyCode::Down => self.help_scroll(1),
                 KeyCode::Char('k') | KeyCode::Up => self.help_scroll(-1),
-                KeyCode::PageDown => self.help_scroll(10),
-                KeyCode::PageUp => self.help_scroll(-10),
                 KeyCode::Char('g') | KeyCode::Home => {
                     if let Some(help) = &mut self.help {
                         help.scroll = 0;
@@ -850,7 +862,7 @@ impl App {
                 }
                 KeyCode::Char('G') | KeyCode::End => {
                     if let Some(help) = &mut self.help {
-                        help.scroll = u16::MAX;
+                        help.scroll = self.help_max_scroll;
                     }
                 }
                 KeyCode::Char('l') => self.lang = self.lang.toggle(),
@@ -861,6 +873,13 @@ impl App {
         if self.editing {
             return self.on_edit_key(key);
         }
+        if let Some((direction, half)) = page_key(&key) {
+            let rows = ui::page_rows(self);
+            let distance = page_distance(rows, half);
+            self.move_page(direction * distance, rows);
+            self.clamp();
+            return false;
+        }
         match key.code {
             KeyCode::Char('q') => return true,
             KeyCode::Char('?') => self.open_help(),
@@ -868,8 +887,6 @@ impl App {
             KeyCode::Tab => self.cycle_view(),
             KeyCode::Char('j') | KeyCode::Down => self.move_sel(1),
             KeyCode::Char('k') | KeyCode::Up => self.move_sel(-1),
-            KeyCode::PageDown => self.move_sel(10),
-            KeyCode::PageUp => self.move_sel(-10),
             KeyCode::Char('g') | KeyCode::Home => {
                 self.sel = 0;
                 self.detail_sel = 0;
@@ -957,6 +974,31 @@ impl App {
         self.sel = step(self.sel, delta, n);
     }
 
+    fn move_page(&mut self, delta: isize, rows: usize) {
+        let count = match (self.view, self.detail, self.drill.is_some()) {
+            (View::Apps, _, _) => self.visible_apps().len(),
+            (View::Cgroups, _, true) => self.cgroup_members().len(),
+            (View::Cgroups, _, false) => self.visible_cgroups().len(),
+            (View::Procs, true, _) => self.detail_len(),
+            (View::Procs, false, _) => self.visible().len(),
+        };
+        let (selected, state) = match (self.view, self.detail, self.drill.is_some()) {
+            (View::Apps, _, _) => (&mut self.app_sel, &mut self.app_state),
+            (View::Cgroups, _, true) => (&mut self.drill_sel, &mut self.drill_state),
+            (View::Cgroups, _, false) => (&mut self.cgroup_sel, &mut self.cgroup_state),
+            (View::Procs, true, _) => (&mut self.detail_sel, &mut self.detail_state),
+            (View::Procs, false, _) => (&mut self.sel, &mut self.table_state),
+        };
+        let current = (*selected).min(count.saturating_sub(1));
+        let offset = state.offset().min(current).min(count.saturating_sub(rows));
+        let next = step(current, delta, count);
+        *selected = next;
+        *state.offset_mut() = offset
+            .saturating_add_signed(delta)
+            .min(next)
+            .min(count.saturating_sub(rows));
+    }
+
     pub fn run(
         mut self,
         terminal: &mut DefaultTerminal,
@@ -998,6 +1040,23 @@ impl App {
             .map(|s| s.at.elapsed().as_millis())
             .unwrap_or(0)
     }
+}
+
+fn page_key(key: &KeyEvent) -> Option<(isize, bool)> {
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    match key.code {
+        KeyCode::PageDown => Some((1, false)),
+        KeyCode::PageUp => Some((-1, false)),
+        KeyCode::Char('d') if ctrl => Some((1, true)),
+        KeyCode::Char('u') if ctrl => Some((-1, true)),
+        KeyCode::Char('f') if ctrl => Some((1, false)),
+        KeyCode::Char('b') if ctrl => Some((-1, false)),
+        _ => None,
+    }
+}
+
+fn page_distance(rows: usize, half: bool) -> isize {
+    (if half { rows / 2 } else { rows }).max(1) as isize
 }
 
 fn step(cur: usize, delta: isize, n: usize) -> usize {

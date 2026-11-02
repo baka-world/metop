@@ -114,6 +114,28 @@ fn truncate(s: &str, n: usize) -> String {
     }
 }
 
+fn summary_chunks(area: Rect, summary_height: u16) -> [Rect; 2] {
+    let chunks =
+        Layout::vertical([Constraint::Length(summary_height), Constraint::Min(4)]).split(area);
+    [chunks[0], chunks[1]]
+}
+
+pub(crate) fn page_rows(app: &App) -> usize {
+    let area = app.page_area;
+    if area.height == 0 {
+        return 10;
+    }
+    let table = match (app.view, app.detail, app.drill.is_some()) {
+        (View::Procs, true, _) => summary_chunks(area, 4)[1],
+        (View::Cgroups, _, true) => summary_chunks(area, 3)[1],
+        _ => area,
+    };
+    let treemap = app.view == View::Apps
+        && area.width.saturating_sub(2) >= 100
+        && area.height.saturating_sub(2) >= 14;
+    usize::from(table.height.saturating_sub(if treemap { 2 } else { 3 })).max(1)
+}
+
 pub fn draw(f: &mut Frame, app: &mut App) {
     let area = f.area();
     app.hits.clear();
@@ -124,6 +146,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Constraint::Length(2),
     ])
     .split(area);
+    app.page_area = chunks[1];
 
     header(f, chunks[0], app);
     let has_detail = app.snap.as_ref().is_some_and(|s| s.detail.is_some());
@@ -842,7 +865,7 @@ fn cgroup_drill(f: &mut Frame, area: Rect, app: &mut App) {
     let members = app.cgroup_members();
     let member_count = members.len();
     let cg = snap.cgroups.iter().find(|c| c.path == path);
-    let chunks = Layout::vertical([Constraint::Length(3), Constraint::Min(4)]).split(area);
+    let chunks = summary_chunks(area, 3);
 
     let summary = Line::from(vec![
         Span::styled(
@@ -1113,7 +1136,7 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
         app.detail_state = state;
         return;
     };
-    let chunks = Layout::vertical([Constraint::Length(4), Constraint::Min(4)]).split(area);
+    let chunks = summary_chunks(area, 4);
     let r = &d.report;
     let summary = vec![
         Line::from(vec![
@@ -1392,8 +1415,10 @@ fn help_overlay(f: &mut Frame, area: Rect, app: &mut App) {
     let Some(help) = &app.help else {
         return;
     };
+    let page = help.page;
+    let mut scroll = help.scroll;
     let t = T(app.lang);
-    let doc = t.doc(help.page);
+    let doc = t.doc(page);
     let p = app.theme.palette;
 
     let width = area.width.saturating_sub(4).clamp(24, 100);
@@ -1424,20 +1449,24 @@ fn help_overlay(f: &mut Frame, area: Rect, app: &mut App) {
 
     let block = Block::new()
         .borders(Borders::ALL)
-        .title(format!(" {} ", t.help_title(help.page)))
+        .title(format!(" {} ", t.help_title(page)))
         .title_bottom(Line::from(Span::styled(
             t.help_footer(),
             Style::new().fg(p.dim),
         )));
     let inner = block.inner(rect);
-    let max_scroll = lines.len().saturating_sub(inner.height as usize) as u16;
-    f.render_widget(
-        Paragraph::new(lines)
-            .block(block)
-            .wrap(ratatui::widgets::Wrap { trim: false })
-            .scroll((help.scroll.min(max_scroll), 0)),
-        rect,
-    );
+    let paragraph = Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false });
+    let max_scroll = paragraph
+        .line_count(inner.width)
+        .saturating_sub(inner.height as usize)
+        .min(u16::MAX as usize) as u16;
+    app.help_page_rows = inner.height.max(1);
+    app.help_max_scroll = max_scroll;
+    scroll = scroll.min(max_scroll);
+    if let Some(help) = &mut app.help {
+        help.scroll = scroll;
+    }
+    f.render_widget(paragraph.block(block).scroll((scroll, 0)), rect);
 }
 
 #[cfg(test)]

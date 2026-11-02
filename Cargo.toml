@@ -22,7 +22,7 @@ path = "src/main.rs"
 [dependencies]
 # pinned: 0.30 split ratatui into core/widgets/backends; minor bumps have changed
 # widget APIs (Gauge::label, Frame::size -> area). Revisit deliberately.
-ratatui = "=0.30.2"
+ratatui = { version = "=0.30.2", features = ["unstable-rendered-line-info"] }
 # typed /proc reader: smaps/smaps_rollup/statm/meminfo parsing is theirs, not ours
 procfs = { version = "0.18", default-features = false }
 # only for `--json`: a snapshot must be diffable without the TUI

@@ -81,7 +81,9 @@ metop --diff a.json b.json --min-delta 50M
 | 按键 | 作用 |
 |---|---|
 | `Tab` | 循环视图：进程 → cgroup → apps |
-| `j`/`k`、`↑`/`↓`、`PgUp`/`PgDn` | 移动 |
+| `j`/`k`、`↑`/`↓` | 移动一行 |
+| `Ctrl-d` / `Ctrl-u` | 向下 / 向上移动半屏 |
+| `Ctrl-f` / `Ctrl-b`、`PgDn` / `PgUp` | 向下 / 向上移动整屏 |
 | `g`/`G` | 顶部 / 底部 |
 | `s` / `r` | 切换排序键（apps 视图切换面积指标）/ 反向 |
 | `t` | 循环配色主题（7 套内置配色） |

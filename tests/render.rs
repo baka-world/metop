@@ -382,6 +382,101 @@ fn slash_filters_each_view_and_remains_literal_in_paths() {
 }
 
 #[test]
+fn vim_paging_uses_the_current_viewport_and_preserves_filter_key() {
+    use metop::app::View;
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    let mut snap = snapshot();
+    let cgroup = snap.cgroups[0].clone();
+    let mapping = snap.detail.as_ref().unwrap().report.groups[0].clone();
+    for i in 0..60 {
+        let pid = 1_000 + i;
+        snap.rows.push(ProcRow {
+            pid,
+            comm: format!("proc-{i}"),
+            rss_kb: 20_000,
+            delta_kb: 0,
+        });
+        snap.pss.insert(
+            pid,
+            PssInfo {
+                rollup: rollup(20_000, 6_000, 5_000),
+                at: snap.at,
+            },
+        );
+        Arc::make_mut(&mut snap.pid_cgroup).insert(pid, "/test-parent".into());
+        Arc::make_mut(&mut snap.pid_exe).insert(pid, format!("/test/app-{i}"));
+        let mut cg = cgroup.clone();
+        cg.path = format!("/test-{i}");
+        snap.cgroups.push(cg);
+        let mut group = mapping.clone();
+        group.label = format!("/test/mapping-{i}");
+        snap.detail.as_mut().unwrap().report.groups.push(group);
+    }
+    let mut app = App::new(None);
+    app.on_snapshot(snap);
+    let mut term = Terminal::new(TestBackend::new(90, 20)).unwrap();
+    term.draw(|f| metop::ui::draw(f, &mut app)).unwrap();
+    fn selected_row(term: &Terminal<TestBackend>) -> (u16, String) {
+        let buf = term.backend().buffer();
+        let y = (0..buf.area.height)
+            .find(|y| (0..buf.area.width).any(|x| buf[(x, *y)].symbol() == "▸"))
+            .unwrap();
+        (
+            y,
+            (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect(),
+        )
+    }
+    let first = selected_row(&term);
+    let ctrl = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL);
+    let plain = |code| KeyEvent::new(code, KeyModifiers::NONE);
+
+    app.on_key(ctrl('d'));
+    assert_eq!(app.sel, 5);
+    term.draw(|f| metop::ui::draw(f, &mut app)).unwrap();
+    let half_page = selected_row(&term);
+    assert_eq!(half_page.0, first.0, "paging should scroll the viewport");
+    assert_ne!(half_page.1, first.1);
+    app.on_key(ctrl('u'));
+    assert_eq!(app.sel, 0);
+    app.on_key(ctrl('f'));
+    assert_eq!(app.sel, 11);
+    assert!(!app.editing, "Ctrl-f must page rather than open the filter");
+    term.draw(|f| metop::ui::draw(f, &mut app)).unwrap();
+    let full_page = selected_row(&term);
+    assert_eq!(full_page.0, first.0, "paging should scroll the viewport");
+    assert_ne!(full_page.1, first.1);
+    app.on_key(ctrl('b'));
+    assert_eq!(app.sel, 0);
+    app.on_key(plain(KeyCode::PageDown));
+    assert_eq!(app.sel, 11);
+    app.on_key(plain(KeyCode::PageUp));
+    assert_eq!(app.sel, 0);
+
+    // Page sizes follow the active view even before another draw occurs.
+    app.view = View::Cgroups;
+    app.on_key(ctrl('f'));
+    assert_eq!(app.cgroup_sel, 11);
+    app.drill = Some("/test-parent".into());
+    app.on_key(ctrl('f'));
+    assert_eq!(app.drill_sel, 8);
+    app.view = View::Apps;
+    app.drill = None;
+    app.on_key(ctrl('f'));
+    assert_eq!(app.app_sel, 11);
+    app.view = View::Procs;
+    app.detail = true;
+    app.on_key(ctrl('f'));
+    assert_eq!(app.detail_sel, 7);
+
+    app.detail = false;
+    let mut taller = Terminal::new(TestBackend::new(90, 30)).unwrap();
+    taller.draw(|f| metop::ui::draw(f, &mut app)).unwrap();
+    app.on_key(ctrl('f'));
+    assert_eq!(app.sel, 21, "paging must follow the resized viewport");
+}
+
+#[test]
 fn detail_view_shows_grouped_vmas() {
     let mut app = App::new(None);
     app.on_snapshot(snapshot());
@@ -846,10 +941,16 @@ fn mouse_selects_rows_scrolls_and_clicks_footer_buttons() {
         .rect;
     app.on_mouse(click(help.x + 1, help.y));
     assert!(app.help.is_some());
-    let _ = render(&mut app);
-    let before = app.help.as_ref().unwrap().scroll;
+    let mut small = Terminal::new(TestBackend::new(40, 12)).unwrap();
+    small.draw(|f| metop::ui::draw(f, &mut app)).unwrap();
+    let before = small.backend().buffer().clone();
     app.on_mouse(wheel(true));
-    assert!(app.help.as_ref().unwrap().scroll > before);
+    small.draw(|f| metop::ui::draw(f, &mut app)).unwrap();
+    assert_ne!(
+        small.backend().buffer(),
+        &before,
+        "wheel did not scroll help"
+    );
 
     // Clicks inside the overlay keep it open; clicks outside dismiss it.
     let area = app
@@ -999,31 +1100,37 @@ fn help_overlay_is_per_page_and_bilingual() {
 }
 
 #[test]
-fn help_scroll_is_clamped_by_the_renderer() {
+fn help_paging_uses_wrapped_viewport_and_can_move_back_from_end() {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     let mut app = App::new(None);
     app.on_snapshot(snapshot());
     app.on_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
-    app.on_key(KeyEvent::new(KeyCode::Char('G'), KeyModifiers::NONE));
-    assert_eq!(app.help.as_ref().unwrap().scroll, u16::MAX);
-
-    // A small terminal makes the help text wrap, so the scroll limit must be
-    // computed from the wrapped line count.
-    let mut term = Terminal::new(TestBackend::new(80, 20)).unwrap();
+    let mut term = Terminal::new(TestBackend::new(40, 12)).unwrap();
     term.draw(|f| metop::ui::draw(f, &mut app)).unwrap();
-    let buf = term.backend().buffer();
-    let mut text = String::new();
-    for y in 0..buf.area.height {
-        for x in 0..buf.area.width {
-            text.push_str(buf[(x, y)].symbol());
-        }
-        text.push('\n');
-    }
-    assert!(
-        text.contains("avail = MemAvailable"),
-        "scrolling lost the help body:\n{text}"
-    );
+    let top = term.backend().buffer().clone();
+    let ctrl = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL);
+
+    app.on_key(ctrl('d'));
+    assert_eq!(app.help.as_ref().unwrap().scroll, 4);
+    term.draw(|f| metop::ui::draw(f, &mut app)).unwrap();
+    assert_ne!(term.backend().buffer(), &top);
+    app.on_key(ctrl('u'));
+    assert_eq!(app.help.as_ref().unwrap().scroll, 0);
+    app.on_key(ctrl('f'));
+    assert_eq!(app.help.as_ref().unwrap().scroll, 8);
+    app.on_key(ctrl('b'));
+    assert_eq!(app.help.as_ref().unwrap().scroll, 0);
+
+    app.on_key(KeyEvent::new(KeyCode::Char('G'), KeyModifiers::NONE));
+    term.draw(|f| metop::ui::draw(f, &mut app)).unwrap();
+    let bottom = term.backend().buffer().clone();
+    let bottom_scroll = app.help.as_ref().unwrap().scroll;
+    assert_ne!(bottom, top);
+    app.on_key(ctrl('u'));
+    assert!(app.help.as_ref().unwrap().scroll < bottom_scroll);
+    term.draw(|f| metop::ui::draw(f, &mut app)).unwrap();
+    assert_ne!(term.backend().buffer(), &bottom);
 }
 
 #[test]

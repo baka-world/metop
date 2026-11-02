@@ -15,6 +15,11 @@ version (`0.MINOR.PATCH`).
 - Uncollapsed application groups in JSON snapshots, including memory totals,
   process counts and PIDs, with `--fields` projection support.
 - Vim-style `/` shortcut for filtering, alongside the existing `f` key.
+- Vim-style half-page and full-page navigation.
+
+### Changed
+
+- `PgUp` and `PgDn` now use the actual viewport height instead of ten rows.
 
 ## [0.4.0] - 2026-11-01
 
