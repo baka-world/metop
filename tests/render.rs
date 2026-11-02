@@ -803,6 +803,45 @@ fn highlight_never_falls_back_to_the_terminal_background() {
 }
 
 #[test]
+fn treemap_selection_inverts_the_tile_instead_of_reusing_highlight_bg() {
+    use mtop::app::View;
+    use mtop::theme::Theme;
+    use ratatui::style::Color;
+
+    let mut app = App::new(None);
+    app.on_snapshot(snapshot());
+    app.view = View::Apps;
+    app.theme = Theme::LIGHT;
+
+    let mut term = Terminal::new(TestBackend::new(120, 30)).unwrap();
+    term.draw(|f| mtop::ui::draw(f, &mut app)).unwrap();
+    let buf = term.backend().buffer();
+    // Skip the header/summary rows and the footer: only the treemap remains.
+    let tile_cells = || {
+        buf.content()
+            .iter()
+            .skip(4 * buf.area.width as usize)
+            .take((buf.area.height as usize - 6) * buf.area.width as usize)
+    };
+    let bgs: HashSet<Color> = tile_cells().map(|cell| cell.bg).collect();
+    let p = Theme::LIGHT.palette;
+    assert!(
+        bgs.contains(&p.tile_fg),
+        "selected tile should invert to tile_fg: {bgs:?}"
+    );
+    assert!(
+        !bgs.contains(&p.highlight_bg),
+        "treemap still uses the table highlight colour: {bgs:?}"
+    );
+
+    let fgs: HashSet<Color> = tile_cells().map(|cell| cell.fg).collect();
+    assert!(
+        p.treemap.iter().any(|fill| fgs.contains(fill)),
+        "selected tile text should use its fill colour: {fgs:?}"
+    );
+}
+
+#[test]
 fn apps_view_groups_processes_and_drills_into_the_process_table() {
     use mtop::app::View;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -865,6 +904,25 @@ fn apps_view_falls_back_to_a_list_when_narrow() {
         text.contains("PROCS"),
         "list fallback columns missing:\n{text}"
     );
+
+    // The selected row's share bar must not reuse the highlight colour.
+    app.theme = mtop::theme::Theme::LIGHT;
+    term.draw(|f| mtop::ui::draw(f, &mut app)).unwrap();
+    let buf = term.backend().buffer();
+    let p = app.theme.palette;
+    let y = (0..buf.area.height)
+        .find(|y| (0..buf.area.width).any(|x| buf[(x, *y)].symbol() == "▸"))
+        .expect("selected app row");
+    let bars: Vec<ratatui::style::Color> = (0..buf.area.width)
+        .filter(|x| buf[(*x, y)].symbol() == "█")
+        .map(|x| buf[(x, y)].fg)
+        .collect();
+    assert!(!bars.is_empty(), "selected row has no share bar");
+    assert!(
+        bars.iter().all(|color| *color == p.tile_fg),
+        "selected share bar should contrast with the highlight: {bars:?}"
+    );
+    assert!(!bars.contains(&p.highlight_bg));
 }
 
 #[test]

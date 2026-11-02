@@ -15,6 +15,14 @@ version (`0.MINOR.PATCH`).
   named ANSI colours otherwise. `--color auto|truecolor|256|16` overrides
   detection.
 
+### Fixed
+
+- Treemap selection no longer reuses the table highlight colour, which could
+  match a neighbouring tile fill (most visibly in the `light` theme). The
+  selected tile now inverts its own fill and foreground, and the narrow apps
+  list draws the selected row's share bar in the tile foreground instead of a
+  fill that can match the highlight.
+
 ## [0.2.0] - 2026-11-01
 
 ### Added
