@@ -37,6 +37,12 @@ version (`0.MINOR.PATCH`).
 
 ### Changed
 
+- PSS MIX now uses a fixed, colour-blind-safe palette (Okabe–Ito: sky blue
+  anon, green file, orange shmem, purple swap) instead of theme colours, so the
+  four categories mean the same thing in every theme. The bar is 16 cells wide,
+  keeps at least one cell per nonzero category, and the footer shows a legend.
+
+
 - The UI now draws from a semantic `Palette` instead of hardcoded colours.
   The `default` palette keeps the previous colours exactly, so existing
   screenshots and render tests are unchanged.
