@@ -9,6 +9,7 @@ pub mod app;
 pub mod apps;
 pub mod cgroup;
 pub mod diff;
+pub mod i18n;
 pub mod json;
 pub mod model;
 pub mod procfs;

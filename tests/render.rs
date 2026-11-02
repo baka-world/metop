@@ -720,6 +720,111 @@ fn selected_row_is_tinted_without_losing_semantic_colours() {
 }
 
 #[test]
+fn help_overlay_is_per_page_and_bilingual() {
+    use mtop::app::View;
+    use mtop::i18n::Lang;
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    let key = |c: char| KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+    let mut app = App::new(None);
+    app.on_snapshot(snapshot());
+
+    assert!(!app.on_key(key('?')), "opening help must not quit");
+    let text = render(&mut app);
+    assert!(
+        text.contains("Help · Processes"),
+        "missing help title:\n{text}"
+    );
+    assert!(
+        text.contains("Header / status"),
+        "missing help body:\n{text}"
+    );
+
+    // l switches the whole UI language, including the open overlay.
+    app.on_key(key('l'));
+    assert_eq!(app.lang, Lang::Zh);
+    let text = render(&mut app);
+    // Wide CJK cells put a blank cell after each glyph; compare compacted text.
+    let compact: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    assert!(
+        compact.contains("帮助·进程"),
+        "missing Chinese help:\n{text}"
+    );
+    assert!(
+        compact.contains("顶部状态"),
+        "missing Chinese body:\n{text}"
+    );
+
+    // Esc closes help; q keeps its global meaning and quits.
+    app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(app.help.is_none());
+    app.on_key(key('?'));
+    assert!(app.on_key(key('q')));
+    app.help = None;
+
+    // The overlay follows the current page.
+    app.lang = Lang::En;
+    for (view, detail, drill, title) in [
+        (View::Apps, false, None, "Help · Applications"),
+        (View::Cgroups, false, None, "Help · cgroups v2"),
+        (View::Cgroups, false, Some("/x"), "Help · cgroup drill-down"),
+        (View::Procs, true, None, "Help · VMA detail"),
+    ] {
+        app.view = view;
+        app.detail = detail;
+        app.drill = drill.map(str::to_string);
+        app.help = None;
+        app.on_key(key('?'));
+        assert!(
+            render(&mut app).contains(title),
+            "wrong help page for {view:?} ({title})"
+        );
+    }
+
+    // l also works outside the overlay and moves the footer/titles.
+    app.help = None;
+    app.view = View::Procs;
+    app.detail = false;
+    app.drill = None;
+    app.lang = Lang::En;
+    app.on_key(key('l'));
+    assert_eq!(app.lang, Lang::Zh);
+    let compact: String = render(&mut app)
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    assert!(compact.contains("进程"), "footer/title did not switch");
+}
+
+#[test]
+fn help_scroll_is_clamped_by_the_renderer() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    let mut app = App::new(None);
+    app.on_snapshot(snapshot());
+    app.on_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
+    app.on_key(KeyEvent::new(KeyCode::Char('G'), KeyModifiers::NONE));
+    assert_eq!(app.help.as_ref().unwrap().scroll, u16::MAX);
+
+    // A small terminal makes the help text wrap, so the scroll limit must be
+    // computed from the wrapped line count.
+    let mut term = Terminal::new(TestBackend::new(80, 20)).unwrap();
+    term.draw(|f| mtop::ui::draw(f, &mut app)).unwrap();
+    let buf = term.backend().buffer();
+    let mut text = String::new();
+    for y in 0..buf.area.height {
+        for x in 0..buf.area.width {
+            text.push_str(buf[(x, y)].symbol());
+        }
+        text.push('\n');
+    }
+    assert!(
+        text.contains("MemTotal"),
+        "scrolling lost the help body:\n{text}"
+    );
+}
+
+#[test]
 fn theme_key_cycles_the_palette_and_names_it_in_the_footer() {
     use mtop::theme::Theme;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};

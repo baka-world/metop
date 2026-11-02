@@ -14,6 +14,16 @@ version (`0.MINOR.PATCH`).
   quantised to 256 colours (`Color::Indexed`, btop's 6×6×6 cube + grey ramp) or
   named ANSI colours otherwise. `--color auto|truecolor|256|16` overrides
   detection.
+- Per-page help overlay (`?`) covering the header, columns, markers and keys
+  for processes, cgroups, apps, VMA detail and cgroup drill-down.
+- English/Chinese UI with `--lang auto|en|zh`, `MTOP_LANG` and the `l` key.
+
+### Changed
+
+- PSS MIX now uses a fixed, colour-blind-safe palette (Okabe–Ito: sky blue
+  anon, green file, orange shmem, purple swap) instead of theme colours, so the
+  four categories mean the same thing in every theme. The bar is 16 cells wide,
+  keeps at least one cell per nonzero category, and the footer shows a legend.
 
 ### Fixed
 
@@ -36,12 +46,6 @@ version (`0.MINOR.PATCH`).
   or the `t` key while running. The footer names the active theme.
 
 ### Changed
-
-- PSS MIX now uses a fixed, colour-blind-safe palette (Okabe–Ito: sky blue
-  anon, green file, orange shmem, purple swap) instead of theme colours, so the
-  four categories mean the same thing in every theme. The bar is 16 cells wide,
-  keeps at least one cell per nonzero category, and the footer shows a legend.
-
 
 - The UI now draws from a semantic `Palette` instead of hardcoded colours.
   The `default` palette keeps the previous colours exactly, so existing
