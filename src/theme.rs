@@ -6,9 +6,10 @@
 //! the TUI is running.
 //!
 //! Every palette slot is semantic rather than per-widget: a light terminal can
-//! turn "too much memory" into a dark amber without any draw-code change, and
-//! the default palette is exactly the colours mtop shipped with, so the default
-//! look and the existing render tests are unchanged.
+//! turn "too much memory" into a dark amber without any draw-code change. The
+//! default theme keeps the shipped chrome colours (highlight, dim, accent,
+//! severity, treemap); PSS composition uses a fixed accessible palette so the
+//! meaning of anon/file/shmem/swap never changes with the theme.
 
 use ratatui::style::{Color, Style};
 
@@ -124,7 +125,8 @@ pub struct Palette {
 }
 
 impl Palette {
-    /// The colours mtop had before themes existed.
+    /// mtop's original chrome colours. PSS composition slots are fixed
+    /// separately (see `MIX_*`), not part of the per-theme palette.
     pub const DEFAULT: Self = Self {
         dim: Color::DarkGray,
         dim_selected: Color::Gray,

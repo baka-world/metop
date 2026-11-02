@@ -66,7 +66,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | F27 | apps 视图选中并用 `Enter` 下钻到该应用的进程（`Esc` 清除过滤） | 同上 + `selected_row_is_tinted...` 同源的渲染测试 |
 | F28 | treemap 布局不变量：在界内、互不重叠、面积成比例 | `treemap_tiles_stay_inside_and_do_not_overlap`、`treemap_area_is_proportional_within_a_few_percent` |
 | F29 | apps 视图右上角显示选中应用的历史（120 点），按指标分别存储；RSS 模式在标题标注"overcounts shared" | `apps_history_tracks_each_metric_separately`、实机 `▅▇▇█…` |
-| F30 | 七套内置配色：`default`、`btop`、`dracula`、`gruvbox-dark`、`kanagawa-wave`、`light`、`ansi16`；后四套的颜色取自 btop 自带主题文件；`--theme`、`MTOP_THEME`、运行时 `t` 循环；不引入配置文件；默认配色与旧版逐色一致；按终端能力自动以真彩/256/16 色渲染（btop 的 6×6×6 + 灰阶量化规则），`--color auto\|truecolor\|256\|16` 可覆盖 | `theme.rs` 单测（含量化）、`theme_key_cycles_...`、`ansi256_rendering_uses_indexed_colours_only`、`unknown_colour_mode_is_a_usage_error` |
+| F30 | 七套内置配色：`default`、`btop`、`dracula`、`gruvbox-dark`、`kanagawa-wave`、`light`、`ansi16`；后四套的颜色取自 btop 自带主题文件；`--theme`、`MTOP_THEME`、运行时 `t` 循环；不引入配置文件；默认主题的 chrome 配色（高亮/标题/严重度/treemap）与旧版逐色一致，PSS 构成使用固定色板；按终端能力自动以真彩/256/16 色渲染（btop 的 6×6×6 + 灰阶量化规则），`--color auto\|truecolor\|256\|16` 可覆盖 | `theme.rs` 单测（含量化）、`theme_key_cycles_...`、`ansi256_rendering_uses_indexed_colours_only`、`unknown_colour_mode_is_a_usage_error` |
 
 ## 5. 数据来源与精度
 
