@@ -86,11 +86,17 @@ mtop --diff a.json b.json --min-delta 50M
 | `Esc` | clear filter, leave detail or drill-down |
 | `q` | quit |
 
+### Help and i18n
+
+![help overlay](docs/images/help.png)
+
+Press `?` for a page-specific explanation of the header, columns, colour codes, markers and keys. `--lang auto|en|zh`, `MTOP_LANG` or `l` switch between English and Chinese; the footer buttons are clickable. Screenshots use the `dracula` theme.
+
 ### Process view
 
 ![process view](docs/images/process.png)
 
-The header reports the sampler's own cost (`sweep`/`pss` ms, PSS coverage, sample age) so partial data is never presented as complete. Rows with `n/a` need privileges; a dimmed `~` marks a cached value older than the freshness window.
+The header reports the sampler's own cost (`sweep`/`pss` ms, PSS coverage, sample age) so partial data is never presented as complete. Rows with `n/a` need privileges; a dimmed `~` marks a cached value older than the freshness window. The footer is a clickable command bar and the PSS mix legend only appears here.
 
 ### VMA detail
 
@@ -110,7 +116,7 @@ Values are hierarchical: a parent already includes its children, so the list sor
 
 ![apps treemap](docs/images/apps.png)
 
-Area is PSS by default; `s` switches to USS (private only) or RSS (which overcounts shared pages, and says so in the title). `Enter` drills into that app's processes.
+Area is PSS by default; `s` switches to USS (private only) or RSS (which overcounts shared pages, and says so in the title). Tiles use the active theme's bright palette, with dark labels; `Enter` drills into that app's processes.
 
 ## Scripting
 

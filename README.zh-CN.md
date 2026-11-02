@@ -86,11 +86,17 @@ mtop --diff a.json b.json --min-delta 50M
 | `Esc` | 清除过滤、退出详情或下钻 |
 | `q` | 退出 |
 
+### 帮助与中英文
+
+![帮助面板](docs/images/help-zh.png)
+
+按 `?` 查看当前页面的顶部状态、列含义、颜色、标记和按键说明。`--lang auto|en|zh`、`MTOP_LANG` 或运行时 `l` 切换中英文；footer 按钮均可点击。截图使用 `dracula` 主题。
+
 ### 进程视图
 
 ![进程视图](docs/images/process.png)
 
-表头会报告采样器自身的开销（`sweep`/`pss` 毫秒、PSS 覆盖率、样本年龄），所以不会把部分数据伪装成完整数据。`n/a` 表示需要权限；带 `~` 的暗色值表示缓存已超过新鲜窗口。
+表头会报告采样器自身的开销（`sweep`/`pss` 毫秒、PSS 覆盖率、样本年龄），所以不会把部分数据伪装成完整数据。`n/a` 表示需要权限；带 `~` 的暗色值表示缓存已超过新鲜窗口。footer 是可点击命令栏，PSS 构成图例只在进程视图显示。
 
 ### VMA 详情
 
@@ -110,7 +116,7 @@ mtop --diff a.json b.json --min-delta 50M
 
 ![apps treemap](docs/images/apps.png)
 
-面积默认是 PSS；`s` 切到 USS（只看私有）或 RSS（重复计算共享页，标题会明确写出）。`Enter` 下钻到该应用的进程。
+面积默认是 PSS；`s` 切到 USS（只看私有）或 RSS（重复计算共享页，标题会明确写出）。图块使用当前主题的亮色配深色文字；`Enter` 下钻到该应用的进程。
 
 ## 脚本化
 
