@@ -64,3 +64,25 @@ entry.
 - Do not bundle a version bump into an unrelated feature commit. The release
   commit (`Release vX.Y.Z`) contains only the version bump and changelog
   promotion, so the diff between tags is exactly the released code.
+
+## crates.io
+
+The GitHub project is `mtop`, but the crates.io name `mtop` is already taken
+(memcached top). The published crate is therefore named **`memtop`**:
+
+- `[lib] name = "mtop"` keeps the Rust library name `mtop`;
+- `[[bin]] name = "mtop"` keeps `cargo install memtop` producing the `mtop`
+  binary;
+- `[package.metadata.deb].name` / `[package.metadata.generate-rpm].name` keep
+  the GitHub release packages named `mtop`.
+
+Publishing requires a crates.io token (`cargo login`) and a clean tree:
+
+```sh
+cargo package --list --locked
+cargo publish --dry-run --locked
+cargo publish --locked
+```
+
+The version must match `Cargo.toml`; do not move the GitHub tag after a crate
+is published. A crate version is immutable once uploaded.

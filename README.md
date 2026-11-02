@@ -52,6 +52,9 @@ sudo dpkg -i mtop_0.3.0-1_amd64.deb
 gh release download v0.3.0 --repo baka-world/mtop --pattern '*.rpm'
 sudo rpm -i mtop-0.3.0-1.x86_64.rpm
 
+# From crates.io (installs the `mtop` binary)
+cargo install memtop
+
 # From source
 cargo build --release && sudo install -m755 target/release/mtop /usr/local/bin/
 ```

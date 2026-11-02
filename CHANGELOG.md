@@ -8,6 +8,11 @@ version (`0.MINOR.PATCH`).
 
 ## [Unreleased]
 
+### Changed
+
+- The crates.io package name is `memtop` (the name `mtop` is taken); the
+  installed binary and Rust library remain `mtop`.
+
 ## [0.3.0] - 2026-11-01
 
 ### Added
