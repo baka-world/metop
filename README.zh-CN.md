@@ -29,6 +29,7 @@ RSS 会把每个共享页在每个进程里各算一遍，多进程应用因此�
 - **cgroup v2 视图**：`memory.current` / `memory.stat` / `memory.max` / `memory.events`、PSI（`some`/`full`）、OOM 增量，并能下钻到子树里的进程。
 - **apps treemap**：按应用聚合（systemd `app-*.scope` → exe → comm），面积 ∝ PSS，长尾折叠为 `others`。
 - **可脚本化**：`--json`（`--fields` 点号投影）、`--diff`（`--min-delta` / `--top`），快照按 PID 稳定排序、可直接 diff。
+- **主题**：七套内置配色，其中 `btop` / `dracula` / `gruvbox-dark` / `kanagawa-wave` 的颜色取自 btop 自带主题；`--theme`、`MTOP_THEME` 或运行时 `t` 切换（不需要配置文件）。
 
 ## 安装
 
@@ -36,18 +37,18 @@ RSS 会把每个共享页在每个进程里各算一遍，多进程应用因此�
 
 | 平台 | 产物 |
 |---|---|
-| Debian / Ubuntu | `mtop_0.1.0-1_amd64.deb` · `mtop_0.1.0-1_arm64.deb` |
-| Fedora / RHEL / openSUSE | `mtop-0.1.0-1.x86_64.rpm` · `mtop-0.1.0-1.aarch64.rpm` |
-| 任意发行版 | `mtop-v0.1.0-x86_64-unknown-linux-musl.tar.gz` · `…-aarch64-…` |
+| Debian / Ubuntu | `mtop_0.2.0-1_amd64.deb` · `mtop_0.2.0-1_arm64.deb` |
+| Fedora / RHEL / openSUSE | `mtop-0.2.0-1.x86_64.rpm` · `mtop-0.2.0-1.aarch64.rpm` |
+| 任意发行版 | `mtop-v0.2.0-x86_64-unknown-linux-musl.tar.gz` · `…-aarch64-…` |
 
 ```sh
 # Debian / Ubuntu
-gh release download v0.1.0 --repo baka-world/mtop --pattern '*.deb'
-sudo dpkg -i mtop_0.1.0-1_amd64.deb
+gh release download v0.2.0 --repo baka-world/mtop --pattern '*.deb'
+sudo dpkg -i mtop_0.2.0-1_amd64.deb
 
 # Fedora / RHEL
-gh release download v0.1.0 --repo baka-world/mtop --pattern '*.rpm'
-sudo rpm -i mtop-0.1.0-1.x86_64.rpm
+gh release download v0.2.0 --repo baka-world/mtop --pattern '*.rpm'
+sudo rpm -i mtop-0.2.0-1.x86_64.rpm
 
 # 从源码
 cargo build --release && sudo install -m755 target/release/mtop /usr/local/bin/
@@ -60,6 +61,8 @@ cargo build --release && sudo install -m755 target/release/mtop /usr/local/bin/
 ```
 mtop                       # 全系统
 mtop --pid 1234            # 启动即选中某个进程
+mtop --theme dracula       # default | btop | dracula | gruvbox-dark |
+                           # kanagawa-wave | light | ansi16（也可用 MTOP_THEME）
 mtop --json --fields procs.pid,procs.rss_kb
 mtop --diff a.json b.json --min-delta 50M
 ```
@@ -70,6 +73,7 @@ mtop --diff a.json b.json --min-delta 50M
 | `j`/`k`、`↑`/`↓`、`PgUp`/`PgDn` | 移动 |
 | `g`/`G` | 顶部 / 底部 |
 | `s` / `r` | 切换排序键（apps 视图切换面积指标）/ 反向 |
+| `t` | 循环配色主题（7 套内置配色） |
 | `f` | 过滤（进程名、PID、cgroup 路径、映射名） |
 | `Enter` | 详情 / 展开映射 / 下钻 cgroup 或 app |
 | `Esc` | 清除过滤、退出详情或下钻 |

@@ -693,6 +693,48 @@ fn selected_row_is_tinted_without_losing_semantic_colours() {
 }
 
 #[test]
+fn theme_key_cycles_the_palette_and_names_it_in_the_footer() {
+    use mtop::theme::Theme;
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use ratatui::style::Color;
+
+    let mut app = App::new(None);
+    app.on_snapshot(snapshot());
+
+    let mut term = Terminal::new(TestBackend::new(120, 26)).unwrap();
+    term.draw(|f| mtop::ui::draw(f, &mut app)).unwrap();
+    let bgs = |term: &Terminal<TestBackend>| -> HashSet<Color> {
+        term.backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.bg)
+            .collect()
+    };
+    assert!(render(&mut app).contains("theme: default"));
+    assert!(!bgs(&term).contains(&Color::Rgb(0x6a, 0x2f, 0x2f)));
+
+    app.on_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+    term.draw(|f| mtop::ui::draw(f, &mut app)).unwrap();
+    assert!(render(&mut app).contains("theme: btop"));
+    assert!(
+        bgs(&term).contains(&Color::Rgb(0x6a, 0x2f, 0x2f)),
+        "btop highlight background missing"
+    );
+
+    // Every press advances one theme; the last wraps to default.
+    for expected in &Theme::ALL[1..] {
+        assert!(
+            render(&mut app).contains(&format!("theme: {}", expected.name)),
+            "footer missing {}",
+            expected.name
+        );
+        app.on_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+    }
+    assert!(render(&mut app).contains("theme: default"));
+}
+
+#[test]
 fn highlight_never_falls_back_to_the_terminal_background() {
     use mtop::ui::HL_BG;
     use ratatui::style::{Color, Modifier};

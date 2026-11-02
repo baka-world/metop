@@ -3,17 +3,21 @@ use std::sync::mpsc;
 
 use mtop::app::App;
 use mtop::sampler;
+use mtop::theme::Theme;
 
 const HELP: &str = "\
 mtop - Linux memory analysis TUI
 
 USAGE:
-    mtop [--pid PID]
+    mtop [--pid PID] [--theme NAME]
     mtop --json [--pid PID] [--fields procs.pid,procs.rss_kb]
     mtop --diff A.json B.json [--min-delta 50M] [--top 20]
 
 OPTIONS:
     -p, --pid PID   start with PID selected (also enables Enter drill-down)
+        --theme NAME  TUI colour theme: default, btop, dracula,
+                      gruvbox-dark, kanagawa-wave, light, ansi16
+                      (also MTOP_THEME; `t` switches at runtime)
         --json      print one snapshot as JSON and exit (diffable; no TUI)
         --fields P  comma-separated dotted paths to keep, e.g.
                     procs.pid,procs.comm,procs.pss.pss_kb (schema/at always kept)
@@ -26,6 +30,7 @@ OPTIONS:
 KEYS:
     j/k, ↑/↓        move selection          g/G     top / bottom
     s               cycle sort key          r       reverse order
+    t               cycle colour theme      Tab     switch view
     f               filter process name/pid Enter   per-process VMA breakdown
     f (detail)      filter mapping names    Enter   expand a mapping into VMAs
     z / Z (detail)  collapse / expand all   Esc     clear filter / back
@@ -34,6 +39,7 @@ KEYS:
 
 fn main() -> ExitCode {
     let mut start_pid = None;
+    let mut theme: Option<Theme> = None;
     let mut json_out = false;
     let mut fields: Vec<String> = Vec::new();
     let mut diff: Option<(String, String)> = None;
@@ -48,6 +54,25 @@ fn main() -> ExitCode {
                     Some(pid) => start_pid = Some(pid),
                     None => {
                         eprintln!("mtop: --pid needs a numeric pid");
+                        return ExitCode::from(2);
+                    }
+                }
+            }
+            "--theme" => {
+                i += 1;
+                match args.get(i) {
+                    Some(name) => match Theme::by_name(name) {
+                        Some(t) => theme = Some(t),
+                        None => {
+                            eprintln!(
+                                "mtop: unknown theme {name:?}; choose one of {}",
+                                Theme::NAMES
+                            );
+                            return ExitCode::from(2);
+                        }
+                    },
+                    None => {
+                        eprintln!("mtop: --theme needs a name ({})", Theme::NAMES);
                         return ExitCode::from(2);
                     }
                 }
@@ -166,12 +191,25 @@ fn main() -> ExitCode {
         };
     }
 
+    // --theme wins; MTOP_THEME is the shell/alias convenience. A bad env value
+    // warns instead of making every mtop invocation fail.
+    let theme = theme.unwrap_or_else(|| match std::env::var("MTOP_THEME") {
+        Ok(name) => Theme::by_name(&name).unwrap_or_else(|| {
+            eprintln!(
+                "mtop: ignoring MTOP_THEME={name:?}; choose one of {}",
+                Theme::NAMES
+            );
+            Theme::DEFAULT
+        }),
+        Err(_) => Theme::DEFAULT,
+    });
+
     let (cmd_tx, cmd_rx) = mpsc::channel();
     let (snap_tx, snap_rx) = mpsc::channel();
     sampler::spawn(cmd_rx, snap_tx);
 
     let mut terminal = ratatui::init();
-    let result = App::run(&mut terminal, start_pid, cmd_tx, snap_rx);
+    let result = App::run(&mut terminal, start_pid, theme, cmd_tx, snap_rx);
     ratatui::restore();
     match result {
         Ok(()) => ExitCode::SUCCESS,

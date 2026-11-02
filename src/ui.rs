@@ -8,32 +8,14 @@ use crate::app::{App, DetailRow, View};
 use crate::cgroup::CgroupMem;
 use crate::model::{PSS_MAX_AGE, SortKey};
 use crate::procfs::fmt_kb;
+use crate::theme::Palette;
 
 const SHARE_W: usize = 6;
 const MIX_W: usize = 12;
 
-/// Selected row / badge highlight.
-///
-/// Only the background is set, and with an explicit RGB value rather than a
-/// palette entry: ANSI blue is a light steel blue in many themes, which made
-/// white text low-contrast, and overriding the foreground turned the coloured
-/// bars into a white band. Keeping per-cell colours and just tinting the row
-/// keeps every semantic colour (bars, deltas) readable.
-pub const HL_BG: Color = Color::Rgb(38, 79, 120);
-
-fn highlight_style() -> Style {
-    Style::new().bg(HL_BG)
-}
-
-/// Dim secondary text. On the tinted selected row DarkGray would vanish into
-/// the background, so lift it one step.
-fn dim(selected: bool) -> Color {
-    if selected {
-        Color::Gray
-    } else {
-        Color::DarkGray
-    }
-}
+/// Default-theme highlight background, kept public for tests and callers that
+/// need the built-in value.
+pub const HL_BG: Color = Palette::DEFAULT.highlight_bg;
 
 const SPARK_LEVELS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
@@ -122,6 +104,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 }
 
 fn header(f: &mut Frame, area: Rect, app: &App) {
+    let p = app.theme.palette;
     let cols = Layout::horizontal([Constraint::Min(48), Constraint::Length(32)]).split(area);
     let Some(snap) = &app.snap else {
         f.render_widget(Paragraph::new("mtop"), cols[0]);
@@ -134,15 +117,15 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
         used as f64 / snap.mem.total_kb as f64
     };
     let mem_color = if used_frac > 0.9 {
-        Color::Red
+        p.crit
     } else if used_frac > 0.75 {
-        Color::Yellow
+        p.warn
     } else {
-        Color::Green
+        p.ok
     };
     let swap_used = snap.mem.swap_total_kb.saturating_sub(snap.mem.swap_free_kb);
     let line1 = Line::from(vec![
-        Span::styled(" mtop ", highlight_style().add_modifier(Modifier::BOLD)),
+        Span::styled(" mtop ", p.highlight().add_modifier(Modifier::BOLD)),
         Span::raw(format!(" {} procs  mem ", snap.rows.len())),
         Span::styled(
             format!("{}/{}", fmt_kb(used), fmt_kb(snap.mem.total_kb)),
@@ -164,12 +147,9 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
     let mut line2 = vec![
         Span::styled(
             format!(" sweep {:.0}ms ", snap.sweep_ms),
-            Style::new().fg(Color::DarkGray),
+            Style::new().fg(p.dim),
         ),
-        Span::styled(
-            format!("pss {:.0}ms ", snap.pss_ms),
-            Style::new().fg(Color::DarkGray),
-        ),
+        Span::styled(format!("pss {:.0}ms ", snap.pss_ms), Style::new().fg(p.dim)),
         Span::styled(
             format!(
                 "coverage {}/{} = {} ",
@@ -177,22 +157,22 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
                 eligible,
                 fmt_kb(snap.covered_pss_kb)
             ),
-            Style::new().fg(Color::DarkGray),
+            Style::new().fg(p.dim),
         ),
     ];
     if denied > 0 {
         line2.push(Span::styled(
             format!("{denied} n/a (needs root) "),
-            Style::new().fg(Color::Yellow),
+            Style::new().fg(p.warn),
         ));
     }
     let psi = snap.pressure;
     let psi_color = if psi.some10 >= 20.0 {
-        Color::Red
+        p.crit
     } else if psi.some10 >= 5.0 {
-        Color::Yellow
+        p.warn
     } else {
-        Color::DarkGray
+        p.dim
     };
     line2.push(Span::styled(
         format!("psi {:.1}/{:.1}% ", psi.some10, psi.full10),
@@ -200,7 +180,7 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
     ));
     line2.push(Span::styled(
         format!("age {}ms", app.sample_age_ms()),
-        Style::new().fg(Color::DarkGray),
+        Style::new().fg(p.dim),
     ));
     let line2 = Line::from(line2);
     f.render_widget(
@@ -265,19 +245,19 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
         Sparkline::default()
             .data(data.as_slice())
             .max(max)
-            .style(Style::new().fg(Color::Cyan))
+            .style(Style::new().fg(p.accent))
             .block(Block::new().borders(Borders::ALL).title(label)),
         cols[1],
     );
 }
 
-/// Selected rows and badges are drawn by `highlight_style()` after the cells
+/// Selected rows and badges are drawn by `p.highlight()` after the cells
 /// are rendered, so the explicit background/foreground wins over per-cell
 /// colours. That is why no per-cell `plain` mode is needed (and why reverse
 /// video must not be used: it swaps the terminal's default colours).
 /// Red when a cgroup has ever hit an OOM kill, nothing otherwise.
-fn oom_style_color(c: &CgroupMem) -> Option<Color> {
-    (c.oom_recent > 0 || c.oom_kills > 0).then_some(Color::Red)
+fn oom_style_color(c: &CgroupMem, crit: Color) -> Option<Color> {
+    (c.oom_recent > 0 || c.oom_kills > 0).then_some(crit)
 }
 
 fn styled_span(text: impl Into<String>, color: Color) -> Span<'static> {
@@ -288,12 +268,11 @@ fn styled_cell(text: impl Into<String>, color: Color) -> Cell<'static> {
     Cell::from(Text::from(styled_span(text, color)))
 }
 
-fn bar_cell(frac: f64, color: Color, width: usize) -> Cell<'static> {
+fn bar_cell(frac: f64, color: Color, width: usize, empty: Color) -> Cell<'static> {
     let n = ((frac.clamp(0.0, 1.0)) * width as f64).round() as usize;
     let mut filled: String = "█".repeat(n);
     filled.push_str(&" ".repeat(width - n));
-    Cell::from(Text::from(Line::from(styled_span(filled, color))))
-        .style(Style::new().fg(Color::DarkGray))
+    Cell::from(Text::from(Line::from(styled_span(filled, color)))).style(Style::new().fg(empty))
 }
 
 /// Split `width` cells across `values` proportionally; the last segment takes
@@ -337,20 +316,20 @@ fn segmented_cell(values: &[u64], colors: &[Color]) -> Cell<'static> {
 
 /// Stacked PSS composition: anonymous / file-backed / shmem / swapped-out.
 /// This is the part htop cannot show — it answers "is this heap or page cache".
-fn mix_cell(anon_kb: u64, file_kb: u64, shmem_kb: u64, swap_kb: u64) -> Cell<'static> {
+fn mix_cell(anon_kb: u64, file_kb: u64, shmem_kb: u64, swap_kb: u64, p: &Palette) -> Cell<'static> {
     segmented_cell(
         &[anon_kb, file_kb, shmem_kb, swap_kb],
-        &[Color::Magenta, Color::Cyan, Color::Yellow, Color::LightBlue],
+        &[p.anon, p.file, p.shmem, p.swap],
     )
 }
 
 /// Private (only this process pays) vs shared (PSS-weighted) pages, with the
 /// total length scaled by `frac` so magnitude and split are both visible.
-fn split_cell_scaled(private_kb: u64, shared_kb: u64, frac: f64) -> Cell<'static> {
+fn split_cell_scaled(private_kb: u64, shared_kb: u64, frac: f64, p: &Palette) -> Cell<'static> {
     let filled = ((frac.clamp(0.0, 1.0)) * MIX_W as f64).round() as usize;
     let widths = segments(&[private_kb, shared_kb], filled);
     let mut spans: Vec<Span<'static>> = Vec::with_capacity(3);
-    for (w, color) in widths.iter().zip([Color::Magenta, Color::Cyan]) {
+    for (w, color) in widths.iter().zip([p.anon, p.file]) {
         if *w > 0 {
             spans.push(styled_span("█".repeat(*w), color));
         }
@@ -361,17 +340,18 @@ fn split_cell_scaled(private_kb: u64, shared_kb: u64, frac: f64) -> Cell<'static
     Cell::from(Text::from(Line::from(spans)))
 }
 
-fn delta_span(d: i64, dim_color: Color) -> Span<'static> {
+fn delta_span(d: i64, dim_color: Color, p: &Palette) -> Span<'static> {
     if d == 0 {
         return styled_span("     0", dim_color);
     }
     let kb = d.unsigned_abs();
     let sign = if d > 0 { "+" } else { "-" };
-    let color = if d > 0 { Color::Red } else { Color::Green };
+    let color = if d > 0 { p.crit } else { p.ok };
     styled_span(format!("{sign}{:>6}", fmt_kb(kb)), color)
 }
 
 fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
+    let p = app.theme.palette;
     let mut state = std::mem::take(&mut app.table_state);
     let Some(snap) = &app.snap else {
         app.table_state = state;
@@ -401,10 +381,10 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
                 None => "     —".to_string(),
             };
             let ratio_color = match ratio {
-                Some(_) if stale => dim(selected),
-                Some(v) if v > 0.8 => Color::Yellow,
-                Some(_) => dim(selected),
-                None => dim(selected),
+                Some(_) if stale => p.dim(selected),
+                Some(v) if v > 0.8 => p.warn,
+                Some(_) => p.dim(selected),
+                None => p.dim(selected),
             };
             let frac = r.rss_kb as f64 / max_rss as f64;
             let mem_frac = r.rss_kb as f64 / total as f64;
@@ -417,33 +397,33 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
                 )
             });
             let bar_color = if mem_frac > 0.15 {
-                Color::Red
+                p.crit
             } else if mem_frac > 0.05 {
-                Color::Yellow
+                p.warn
             } else {
-                Color::Cyan
+                p.bar
             };
             Row::new(vec![
                 Cell::from(format!("{:>7}", r.pid)),
                 Cell::from(truncate(&r.comm, 20)),
                 Cell::from(format!("{:>9}", fmt_kb(r.rss_kb))),
                 Cell::from(match pss_kb {
-                    Some(v) if stale => styled_span(format!("{:>8}~", fmt_kb(v)), dim(selected)),
+                    Some(v) if stale => styled_span(format!("{:>8}~", fmt_kb(v)), p.dim(selected)),
                     Some(v) => Span::raw(format!("{:>9}", fmt_kb(v))),
-                    None if denied => styled_span("      n/a", dim(selected)),
-                    None => styled_span("        —", dim(selected)),
+                    None if denied => styled_span("      n/a", p.dim(selected)),
+                    None => styled_span("        —", p.dim(selected)),
                 }),
                 Cell::from(match uss_kb {
-                    Some(v) if stale => styled_span(format!("{:>8}~", fmt_kb(v)), dim(selected)),
+                    Some(v) if stale => styled_span(format!("{:>8}~", fmt_kb(v)), p.dim(selected)),
                     Some(v) => Span::raw(format!("{:>9}", fmt_kb(v))),
-                    None if denied => styled_span("      n/a", dim(selected)),
-                    None => styled_span("        —", dim(selected)),
+                    None if denied => styled_span("      n/a", p.dim(selected)),
+                    None => styled_span("        —", p.dim(selected)),
                 }),
                 styled_cell(ratio_text, ratio_color),
-                Cell::from(Text::from(delta_span(r.delta_kb, dim(selected)))),
-                bar_cell(frac, bar_color, SHARE_W),
+                Cell::from(Text::from(delta_span(r.delta_kb, p.dim(selected), &p))),
+                bar_cell(frac, bar_color, SHARE_W, p.dim),
                 match mix {
-                    Some((a, f, sh, sw)) => mix_cell(a, f, sh, sw),
+                    Some((a, f, sh, sw)) => mix_cell(a, f, sh, sw, &p),
                     None => Cell::from(Span::raw(" ".repeat(MIX_W))),
                 },
             ])
@@ -461,7 +441,7 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
         Cell::from(" SHARE"),
         Cell::from(" PSS MIX"),
     ])
-    .style(Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+    .style(Style::new().fg(p.accent).add_modifier(Modifier::BOLD));
 
     // A PSS/USS ranking is only meaningful once the rollup cache has been
     // filled; say so instead of silently ranking unsampled rows as zero.
@@ -503,25 +483,15 @@ fn table_view(f: &mut Frame, area: Rect, app: &mut App) {
     )
     .header(header)
     .block(Block::new().borders(Borders::ALL).title(sort_label))
-    .row_highlight_style(highlight_style())
+    .row_highlight_style(p.highlight())
     .highlight_symbol("▸");
 
     f.render_stateful_widget(table, area, &mut state);
     app.table_state = state;
 }
 
-/// Dark, low-saturation tile fills: readable with the default foreground and
-/// distinguishable from each other without shouting.
-const APP_PALETTE: [Color; 6] = [
-    Color::Rgb(46, 64, 94),
-    Color::Rgb(60, 47, 82),
-    Color::Rgb(36, 72, 72),
-    Color::Rgb(82, 62, 42),
-    Color::Rgb(52, 72, 46),
-    Color::Rgb(78, 47, 58),
-];
-
 fn apps_view(f: &mut Frame, area: Rect, app: &mut App) {
+    let p = app.theme.palette;
     let apps: Vec<crate::apps::AppGroup> = app.visible_apps().into_iter().cloned().collect();
     if apps.is_empty() {
         f.render_widget(
@@ -570,18 +540,21 @@ fn apps_view(f: &mut Frame, area: Rect, app: &mut App) {
         }
         let selected = i == app.app_sel;
         let bg = if selected {
-            HL_BG
+            p.highlight_bg
         } else {
-            APP_PALETTE[i % APP_PALETTE.len()]
+            p.treemap[i % p.treemap.len()]
         };
         let buf = f.buffer_mut();
         buf.set_style(*r, Style::new().bg(bg));
         if r.width >= 8 && r.height >= 2 {
             let name = truncate(&g.name, (r.width as usize).saturating_sub(2));
             let style = if selected {
-                Style::new().bg(bg).add_modifier(Modifier::BOLD)
+                Style::new()
+                    .bg(bg)
+                    .fg(p.tile_fg)
+                    .add_modifier(Modifier::BOLD)
             } else {
-                Style::new().bg(bg)
+                Style::new().bg(bg).fg(p.tile_fg)
             };
             buf.set_stringn(
                 r.x + 1,
@@ -598,13 +571,14 @@ fn apps_view(f: &mut Frame, area: Rect, app: &mut App) {
                 r.y + 1,
                 sub,
                 (r.width as usize).saturating_sub(2),
-                Style::new().bg(bg).fg(Color::Gray),
+                Style::new().bg(bg).fg(p.tile_fg),
             );
         }
     }
 }
 
 fn apps_list(f: &mut Frame, area: Rect, app: &mut App, apps: &[crate::apps::AppGroup]) {
+    let p = app.theme.palette;
     let mut state = std::mem::take(&mut app.app_state);
     let max = apps
         .iter()
@@ -622,7 +596,7 @@ fn apps_list(f: &mut Frame, area: Rect, app: &mut App, apps: &[crate::apps::AppG
                 Cell::from(format!("{:>9}", fmt_kb(app.app_metric.value(g)))),
                 Cell::from(format!("{:>5}", g.procs)),
                 Cell::from(format!("{:>9}", fmt_kb(g.pss_kb))),
-                bar_cell(frac, APP_PALETTE[i % APP_PALETTE.len()], 10),
+                bar_cell(frac, p.treemap[i % p.treemap.len()], 10, p.dim),
             ])
         })
         .collect();
@@ -633,7 +607,7 @@ fn apps_list(f: &mut Frame, area: Rect, app: &mut App, apps: &[crate::apps::AppG
         Cell::from(format!("{:>9}", "PSS")),
         Cell::from(" SHARE"),
     ])
-    .style(Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+    .style(Style::new().fg(p.accent).add_modifier(Modifier::BOLD));
     let table = Table::new(
         rows,
         [
@@ -645,13 +619,14 @@ fn apps_list(f: &mut Frame, area: Rect, app: &mut App, apps: &[crate::apps::AppG
         ],
     )
     .header(header)
-    .row_highlight_style(highlight_style())
+    .row_highlight_style(p.highlight())
     .highlight_symbol("▸");
     f.render_stateful_widget(table, area, &mut state);
     app.app_state = state;
 }
 
 fn cgroup_drill(f: &mut Frame, area: Rect, app: &mut App) {
+    let p = app.theme.palette;
     let mut state = std::mem::take(&mut app.drill_state);
     let (Some(snap), Some(path)) = (app.snap.as_ref(), app.drill.clone()) else {
         app.drill_state = state;
@@ -664,7 +639,7 @@ fn cgroup_drill(f: &mut Frame, area: Rect, app: &mut App) {
     let summary = Line::from(vec![
         Span::styled(
             format!(" {} ", truncate_left(&path, 60)),
-            highlight_style().add_modifier(Modifier::BOLD),
+            p.highlight().add_modifier(Modifier::BOLD),
         ),
         Span::raw(format!(
             " current {} · {} procs in subtree · limit {} · psi {:.1}/{:.1}% ",
@@ -686,8 +661,8 @@ fn cgroup_drill(f: &mut Frame, area: Rect, app: &mut App) {
     let oom_window: u64 = oom_hist.iter().sum();
     let total_kills = cg.map(|c| c.oom_kills).unwrap_or(0);
     let oom_line = Line::from(vec![
-        Span::styled("oom ", Style::new().fg(Color::DarkGray)),
-        Span::styled(text_spark(&oom_hist, 60), Style::new().fg(Color::Red)),
+        Span::styled("oom ", Style::new().fg(p.dim)),
+        Span::styled(text_spark(&oom_hist, 60), Style::new().fg(p.crit)),
         Span::raw(format!(
             "  {total_kills} total · +{oom_window} in last {} scans",
             oom_hist.len()
@@ -712,11 +687,11 @@ fn cgroup_drill(f: &mut Frame, area: Rect, app: &mut App) {
                 .map(|p| p.rollup.pss_kb as f64 / r.rss_kb as f64);
             let frac = r.rss_kb as f64 / max_rss as f64;
             let color = if frac > 0.15 {
-                Color::Red
+                p.crit
             } else if frac > 0.05 {
-                Color::Yellow
+                p.warn
             } else {
-                Color::Cyan
+                p.bar
             };
             Row::new(vec![
                 Cell::from(format!("{:>7}", r.pid)),
@@ -724,13 +699,13 @@ fn cgroup_drill(f: &mut Frame, area: Rect, app: &mut App) {
                 Cell::from(format!("{:>9}", fmt_kb(r.rss_kb))),
                 Cell::from(match pss {
                     Some(p) => Text::from(format!("{:>9}", fmt_kb(p.rollup.pss_kb))),
-                    None => Text::from(styled_span("        —", dim(selected))),
+                    None => Text::from(styled_span("        —", p.dim(selected))),
                 }),
                 Cell::from(match ratio {
                     Some(v) => format!("{:>7.0}%", v * 100.0),
                     None => "       —".to_string(),
                 }),
-                bar_cell(frac, color, SHARE_W),
+                bar_cell(frac, color, SHARE_W, p.dim),
             ])
         })
         .collect();
@@ -743,7 +718,7 @@ fn cgroup_drill(f: &mut Frame, area: Rect, app: &mut App) {
         Cell::from(format!("{:>8}", "PSS/RSS")),
         Cell::from(" SHARE"),
     ])
-    .style(Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+    .style(Style::new().fg(p.accent).add_modifier(Modifier::BOLD));
 
     let table = Table::new(
         rows,
@@ -762,7 +737,7 @@ fn cgroup_drill(f: &mut Frame, area: Rect, app: &mut App) {
             .borders(Borders::ALL)
             .title(" procs in cgroup subtree  (Esc back) "),
     )
-    .row_highlight_style(highlight_style())
+    .row_highlight_style(p.highlight())
     .highlight_symbol("▸");
 
     f.render_stateful_widget(table, chunks[1], &mut state);
@@ -770,6 +745,7 @@ fn cgroup_drill(f: &mut Frame, area: Rect, app: &mut App) {
 }
 
 fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
+    let p = app.theme.palette;
     let mut state = std::mem::take(&mut app.cgroup_state);
     let Some(snap) = &app.snap else {
         app.cgroup_state = state;
@@ -806,11 +782,11 @@ fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
                 _ => (c.current_kb as f64 / max_cur as f64, 0),
             };
             let color = if c.oom_kills > 0 {
-                Color::Red
+                p.crit
             } else if over > 0 && frac > 0.9 {
-                Color::Yellow
+                p.warn
             } else {
-                Color::Cyan
+                p.bar
             };
             // "7▲" means: 7 kills total, at least one since the last scan.
             let oom_text = if c.oom_recent > 0 {
@@ -827,23 +803,23 @@ fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
                 Cell::from(format!("{:>9}", fmt_kb(c.slab_kb))),
                 Cell::from(match c.limit_kb {
                     Some(l) => Text::from(format!("{:>9}", fmt_kb(l))),
-                    None => Text::from(Span::styled("      max", Style::new().fg(dim(selected)))),
+                    None => Text::from(Span::styled("      max", Style::new().fg(p.dim(selected)))),
                 }),
                 styled_cell(
                     format!("{:>6.1}%", c.psi_some10),
                     if c.psi_some10 >= 20.0 {
-                        Color::Red
+                        p.crit
                     } else if c.psi_some10 >= 5.0 {
-                        Color::Yellow
+                        p.warn
                     } else {
-                        dim(selected)
+                        p.dim(selected)
                     },
                 ),
-                Cell::from(Text::from(match oom_style_color(c) {
+                Cell::from(Text::from(match oom_style_color(c, p.crit) {
                     Some(color) => styled_span(oom_text, color),
                     None => Span::raw(oom_text),
                 })),
-                bar_cell(frac, color, 10),
+                bar_cell(frac, color, 10, p.dim),
             ])
         })
         .collect();
@@ -860,7 +836,7 @@ fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
         Cell::from(format!("{:>4}", "OOM")),
         Cell::from(" CUR/MAX"),
     ])
-    .style(Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+    .style(Style::new().fg(p.accent).add_modifier(Modifier::BOLD));
 
     let recent: u64 = snap.cgroups.iter().map(|c| c.oom_recent).sum();
     let mut title = format!(
@@ -895,7 +871,7 @@ fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
     )
     .header(header)
     .block(Block::new().borders(Borders::ALL).title(title))
-    .row_highlight_style(highlight_style())
+    .row_highlight_style(p.highlight())
     .highlight_symbol("▸");
 
     f.render_stateful_widget(table, area, &mut state);
@@ -903,6 +879,7 @@ fn cgroup_view(f: &mut Frame, area: Rect, app: &mut App) {
 }
 
 fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
+    let p = app.theme.palette;
     let mut state = std::mem::take(&mut app.detail_state);
     let Some(d) = app.snap.as_ref().and_then(|s| s.detail.as_ref()) else {
         app.detail_state = state;
@@ -914,7 +891,7 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
         Line::from(vec![
             Span::styled(
                 format!(" {} {} ", d.pid, truncate(&d.comm, 24)),
-                highlight_style().add_modifier(Modifier::BOLD),
+                p.highlight().add_modifier(Modifier::BOLD),
             ),
             Span::raw(format!(
                 " RSS {}  PSS {}  USS {}  swap {} ",
@@ -925,22 +902,22 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
             )),
         ]),
         Line::from(vec![
-            Span::styled("pss by kind  ", Style::new().fg(Color::DarkGray)),
+            Span::styled("pss by kind  ", Style::new().fg(p.dim)),
             Span::styled(
                 format!("anon {}  ", fmt_kb(d.rollup.pss_anon_kb)),
-                Style::new().fg(Color::Magenta),
+                Style::new().fg(p.anon),
             ),
             Span::styled(
                 format!("file {}  ", fmt_kb(d.rollup.pss_file_kb)),
-                Style::new().fg(Color::Cyan),
+                Style::new().fg(p.file),
             ),
             Span::styled(
                 format!("shmem {}  ", fmt_kb(d.rollup.pss_shmem_kb)),
-                Style::new().fg(Color::Yellow),
+                Style::new().fg(p.warn),
             ),
             Span::styled(
                 format!("swap-pss {}  ", fmt_kb(d.rollup.swap_pss_kb)),
-                Style::new().fg(Color::Blue),
+                Style::new().fg(p.swap_pss),
             ),
             Span::styled(
                 format!(
@@ -948,7 +925,7 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
                     fmt_kb(d.rollup.thp_kb),
                     fmt_kb(d.rollup.ksm_kb)
                 ),
-                Style::new().fg(Color::DarkGray),
+                Style::new().fg(p.dim),
             ),
         ]),
         Line::from(Span::styled(
@@ -959,7 +936,7 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
                 d.parse_ms,
                 truncate(&d.cmdline, 120)
             ),
-            Style::new().fg(Color::DarkGray),
+            Style::new().fg(p.dim),
         )),
     ];
     f.render_widget(
@@ -1000,7 +977,7 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
                         Cell::from(format!("{:>9}", fmt_kb(g.swap_kb))),
                         Cell::from(format!("{:>9}", fmt_kb(g.size_kb))),
                         Cell::from(format!("{:>5}", g.count)),
-                        split_cell_scaled(g.uss_kb, g.pss_kb.saturating_sub(g.uss_kb), frac),
+                        split_cell_scaled(g.uss_kb, g.pss_kb.saturating_sub(g.uss_kb), frac, &p),
                     ])
                 }
                 DetailRow::Vma(g, v) => {
@@ -1008,7 +985,7 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
                     // would otherwise round to zero cells.
                     let denom = g.vmas.first().map(|v| v.pss_kb).unwrap_or(1).max(1);
                     let frac = v.pss_kb as f64 / denom as f64;
-                    let vma_dim = Style::new().fg(dim(selected));
+                    let vma_dim = Style::new().fg(p.dim(selected));
                     Row::new(vec![
                         Cell::from(Text::from(Span::styled(
                             truncate(&format!("    {:x}-{:x} {}", v.start, v.end, v.perms), 44),
@@ -1020,7 +997,7 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
                         Cell::from(format!("{:>9}", fmt_kb(v.swap_kb))),
                         Cell::from(format!("{:>9}", fmt_kb(v.size_kb))),
                         Cell::from(""),
-                        split_cell_scaled(v.uss_kb, v.pss_kb.saturating_sub(v.uss_kb), frac),
+                        split_cell_scaled(v.uss_kb, v.pss_kb.saturating_sub(v.uss_kb), frac, &p),
                     ])
                 }
             }
@@ -1037,7 +1014,7 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
         Cell::from(format!("{:>5}", "VMAS")),
         Cell::from("  PRIV|SHARED"),
     ])
-    .style(Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+    .style(Style::new().fg(p.accent).add_modifier(Modifier::BOLD));
 
     let title = if app.detail_filter.is_empty() {
         " vm mappings by PSS  (Enter expand, Esc back, f filter) ".to_string()
@@ -1059,13 +1036,14 @@ fn detail_view(f: &mut Frame, area: Rect, app: &mut App) {
     )
     .header(header)
     .block(Block::new().borders(Borders::ALL).title(title))
-    .row_highlight_style(highlight_style());
+    .row_highlight_style(p.highlight());
 
     f.render_stateful_widget(table, chunks[1], &mut state);
     app.detail_state = state;
 }
 
 fn footer(f: &mut Frame, area: Rect, app: &App) {
+    let p = app.theme.palette;
     let line = if app.editing {
         Line::from(vec![
             Span::styled(
@@ -1074,11 +1052,11 @@ fn footer(f: &mut Frame, area: Rect, app: &App) {
                 } else {
                     " filter: "
                 },
-                Style::new().fg(Color::Yellow),
+                Style::new().fg(p.focus),
             ),
             Span::raw(app.edit_buf.clone()),
-            Span::styled("▏", Style::new().fg(Color::Yellow)),
-            Span::styled("   Enter 应用 · Esc 取消", Style::new().fg(Color::DarkGray)),
+            Span::styled("▏", Style::new().fg(p.focus)),
+            Span::styled("   Enter 应用 · Esc 取消", Style::new().fg(p.dim)),
         ])
     } else if app.view == View::Apps {
         Line::from(Span::styled(
@@ -1086,12 +1064,12 @@ fn footer(f: &mut Frame, area: Rect, app: &App) {
                 " q quit │ Tab views │ j/k select │ Enter drill into procs │ s metric ({}) │ f filter │ Esc clear ",
                 app.app_metric.label()
             ),
-            Style::new().fg(Color::DarkGray),
+            Style::new().fg(p.dim),
         ))
     } else if app.drill.is_some() {
         Line::from(Span::styled(
             " q quit │ j/k scroll │ Esc back to cgroups │ Tab procs ",
-            Style::new().fg(Color::DarkGray),
+            Style::new().fg(p.dim),
         ))
     } else if app.view == View::Cgroups {
         Line::from(Span::styled(
@@ -1099,12 +1077,12 @@ fn footer(f: &mut Frame, area: Rect, app: &App) {
                 " q quit │ Tab procs │ j/k │ Enter list procs │ s sort ({}) │ r reverse │ f filter path ",
                 app.cgroup_sort.label()
             ),
-            Style::new().fg(Color::DarkGray),
+            Style::new().fg(p.dim),
         ))
     } else if app.detail {
         Line::from(Span::styled(
             " q quit │ j/k │ Enter expand │ z/Z collapse/expand all │ f filter │ Esc back ",
-            Style::new().fg(Color::DarkGray),
+            Style::new().fg(p.dim),
         ))
     } else {
         Line::from(Span::styled(
@@ -1112,10 +1090,18 @@ fn footer(f: &mut Frame, area: Rect, app: &App) {
                 " q quit │ Tab cgroups │ j/k move │ g/G ends │ s sort ({}) │ r reverse │ f filter │ Enter vma detail ",
                 app.sort.label()
             ),
-            Style::new().fg(Color::DarkGray),
+            Style::new().fg(p.dim),
         ))
     };
-    f.render_widget(Paragraph::new(line), area);
+    let theme_line = Line::from(Span::styled(
+        format!(
+            " theme: {} · t switch · {} built-in ",
+            app.theme.name,
+            crate::theme::Theme::ALL.len()
+        ),
+        Style::new().fg(p.dim),
+    ));
+    f.render_widget(Paragraph::new(vec![line, theme_line]), area);
 }
 
 #[cfg(test)]

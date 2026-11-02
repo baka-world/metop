@@ -31,9 +31,29 @@ fn help_lists_the_interfaces_we_actually_have() {
     let out = run(&["--help"]);
     assert!(out.status.success());
     let text = String::from_utf8_lossy(&out.stdout);
-    for needle in ["--json", "--diff", "--min-delta", "--pid", "USAGE"] {
+    for needle in [
+        "--json",
+        "--diff",
+        "--min-delta",
+        "--pid",
+        "--theme",
+        "gruvbox-dark, kanagawa-wave, light, ansi16",
+        "USAGE",
+    ] {
         assert!(text.contains(needle), "help missing {needle}:\n{text}");
     }
+}
+
+#[test]
+fn unknown_theme_is_a_usage_error() {
+    let out = run(&["--theme", "solarized"]);
+    assert_eq!(out.status.code(), Some(2));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("unknown theme"), "stderr: {err}");
+    assert!(err.contains("ansi16"), "stderr should list themes: {err}");
+
+    let missing = run(&["--theme"]);
+    assert_eq!(missing.status.code(), Some(2));
 }
 
 #[test]

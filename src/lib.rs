@@ -13,4 +13,5 @@ pub mod json;
 pub mod model;
 pub mod procfs;
 pub mod sampler;
+pub mod theme;
 pub mod ui;

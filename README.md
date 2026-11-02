@@ -29,6 +29,7 @@ RSS sums to roughly **2.2×** the real number system-wide (2.4× for Chrome). mt
 - **cgroup v2 view** — `memory.current` / `memory.stat` / `memory.max` / `memory.events`, PSI (`some`/`full`), OOM deltas, and drill-down into a subtree's processes.
 - **App treemap** — processes grouped into applications (systemd `app-*.scope` → exe → comm), area ∝ PSS, long tail folded into `others`.
 - **Scriptable** — `--json` (with `--fields` projection), `--diff` (with `--min-delta` / `--top`), stable pid ordering for diffing.
+- **Themes** — seven palettes, including btop-derived `btop`, `dracula`, `gruvbox-dark` and `kanagawa-wave`; pick one with `--theme`, `MTOP_THEME`, or `t` while running (no config file).
 
 ## Install
 
@@ -36,18 +37,18 @@ Prebuilt packages are produced by GitHub Actions for `amd64` and `arm64`; every 
 
 | Platform | Asset |
 |---|---|
-| Debian / Ubuntu | `mtop_0.1.0-1_amd64.deb` · `mtop_0.1.0-1_arm64.deb` |
-| Fedora / RHEL / openSUSE | `mtop-0.1.0-1.x86_64.rpm` · `mtop-0.1.0-1.aarch64.rpm` |
-| Any distro | `mtop-v0.1.0-x86_64-unknown-linux-musl.tar.gz` · `…-aarch64-…` |
+| Debian / Ubuntu | `mtop_0.2.0-1_amd64.deb` · `mtop_0.2.0-1_arm64.deb` |
+| Fedora / RHEL / openSUSE | `mtop-0.2.0-1.x86_64.rpm` · `mtop-0.2.0-1.aarch64.rpm` |
+| Any distro | `mtop-v0.2.0-x86_64-unknown-linux-musl.tar.gz` · `…-aarch64-…` |
 
 ```sh
 # Debian / Ubuntu
-gh release download v0.1.0 --repo baka-world/mtop --pattern '*.deb'
-sudo dpkg -i mtop_0.1.0-1_amd64.deb
+gh release download v0.2.0 --repo baka-world/mtop --pattern '*.deb'
+sudo dpkg -i mtop_0.2.0-1_amd64.deb
 
 # Fedora / RHEL
-gh release download v0.1.0 --repo baka-world/mtop --pattern '*.rpm'
-sudo rpm -i mtop-0.1.0-1.x86_64.rpm
+gh release download v0.2.0 --repo baka-world/mtop --pattern '*.rpm'
+sudo rpm -i mtop-0.2.0-1.x86_64.rpm
 
 # From source
 cargo build --release && sudo install -m755 target/release/mtop /usr/local/bin/
@@ -60,6 +61,8 @@ Binaries are statically linked (musl), and the `.deb` has an empty `Depends:`.
 ```
 mtop                       # whole system
 mtop --pid 1234            # start with a process selected
+mtop --theme dracula       # default | btop | dracula | gruvbox-dark |
+                           # kanagawa-wave | light | ansi16 (or MTOP_THEME)
 mtop --json --fields procs.pid,procs.rss_kb
 mtop --diff a.json b.json --min-delta 50M
 ```
@@ -70,6 +73,7 @@ mtop --diff a.json b.json --min-delta 50M
 | `j`/`k`, `↑`/`↓`, `PgUp`/`PgDn` | move |
 | `g`/`G` | top / bottom |
 | `s` / `r` | cycle sort key (apps: metric) / reverse |
+| `t` | cycle colour theme (7 built-in palettes) |
 | `f` | filter (process name, pid, cgroup path, mapping name) |
 | `Enter` | detail / expand mapping / drill into a cgroup or an app |
 | `Esc` | clear filter, leave detail or drill-down |
