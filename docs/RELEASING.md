@@ -1,6 +1,6 @@
-# Releasing mtop
+# Releasing metop
 
-mtop uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and
+metop uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The version in
 `Cargo.toml` is the single source of truth: the release tag must be exactly
 `v` + that version, and CI enforces it.
@@ -31,14 +31,14 @@ entry.
    cargo clippy --all-targets --locked -- -D warnings
    cargo test --locked
    cargo build --release --locked
-   ./target/release/mtop --version   # must print X.Y.Z
+   ./target/release/metop --version   # must print X.Y.Z
    ```
 
 4. Push `main` and wait for the CI workflow to pass before tagging.
 5. Create an annotated tag and push it:
 
    ```sh
-   git tag -a vX.Y.Z -m "mtop vX.Y.Z"
+   git tag -a vX.Y.Z -m "metop vX.Y.Z"
    git push origin vX.Y.Z
    ```
 
@@ -67,14 +67,8 @@ entry.
 
 ## crates.io
 
-The GitHub project is `mtop`, but the crates.io name `mtop` is already taken
-(memcached top). The published crate is therefore named **`metop`**:
-
-- `[lib] name = "mtop"` keeps the Rust library name `mtop`;
-- `[[bin]] name = "mtop"` keeps `cargo install metop` producing the `mtop`
-  binary;
-- `[package.metadata.deb].name` / `[package.metadata.generate-rpm].name` keep
-  the GitHub release packages named `mtop`.
+The crate name is `metop`; the binary and Rust library are also `metop`. The
+unrelated crates.io `mtop` crate (a Memcached monitor) is not this project.
 
 Publishing requires a crates.io token (`cargo login`) and a clean tree:
 

@@ -55,9 +55,9 @@ jobs:
       - name: Package tarball
         run: |
           set -euo pipefail
-          name="mtop-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          name="metop-${GITHUB_REF_NAME}-${{ matrix.target }}"
           mkdir -p dist
-          cp "target/${{ matrix.target }}/release/mtop" "dist/$name"
+          cp "target/${{ matrix.target }}/release/metop" "dist/$name"
           tar -C dist -czf "$name.tar.gz" "$name"
           rm -r dist
 
@@ -73,9 +73,9 @@ jobs:
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: |
           set -euo pipefail
-          tar -xzf "mtop-${GITHUB_REF_NAME}-${{ matrix.target }}.tar.gz"
-          "./mtop-${GITHUB_REF_NAME}-${{ matrix.target }}" --version
-          dpkg-deb -c target/debian/*.deb | grep -q 'usr/bin/mtop'
+          tar -xzf "metop-${GITHUB_REF_NAME}-${{ matrix.target }}.tar.gz"
+          "./metop-${GITHUB_REF_NAME}-${{ matrix.target }}" --version
+          dpkg-deb -c target/debian/*.deb | grep -q 'usr/bin/metop'
 
       - name: Collect assets and checksums
         run: |

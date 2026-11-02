@@ -1,16 +1,16 @@
-# mtop
+# metop
 
-[![CI](https://github.com/baka-world/mtop/actions/workflows/ci.yml/badge.svg)](https://github.com/baka-world/mtop/actions/workflows/ci.yml)
-[![Release](https://github.com/baka-world/mtop/actions/workflows/release.yml/badge.svg)](https://github.com/baka-world/mtop/actions/workflows/release.yml)
+[![CI](https://github.com/baka-world/metop/actions/workflows/ci.yml/badge.svg)](https://github.com/baka-world/metop/actions/workflows/ci.yml)
+[![Release](https://github.com/baka-world/metop/actions/workflows/release.yml/badge.svg)](https://github.com/baka-world/metop/actions/workflows/release.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Crates.io](https://img.shields.io/crates/v/metop.svg)](https://crates.io/crates/metop)
 [![docs.rs](https://docs.rs/metop/badge.svg)](https://docs.rs/metop)
 
 [English](README.md) · **简体中文**
 
-Linux 内存分析 TUI。`htop` 回答"每个进程的 RSS 是多少"，mtop 回答**"到底是谁占着内存、占在什么地方"**——用 PSS/USS 排序，能下钻到具体映射，也能按 cgroup 和应用聚合。
+Linux 内存分析 TUI。`htop` 回答"每个进程的 RSS 是多少"，metop 回答**"到底是谁占着内存、占在什么地方"**——用 PSS/USS 排序，能下钻到具体映射，也能按 cgroup 和应用聚合。
 
-![mtop 演示](docs/images/demo.gif)
+![metop 演示](docs/images/demo.gif)
 
 ## 为什么是 PSS
 
@@ -22,7 +22,7 @@ RSS 会把每个共享页在每个进程里各算一遍，多进程应用因此�
 | **PSS** | **1.7 GB** | **5.5 GB** |
 | 放大倍数 | 2.4× | 2.2× |
 
-全机 RSS 之和大约是真实占用的 **2.2 倍**（Chrome 是 2.4 倍）。mtop 用 PSS 排序和画面积，用 USS 回答"杀掉它能省多少"，并给出构成（anon / file / shmem / swap），用来区分堆泄漏和页缓存。
+全机 RSS 之和大约是真实占用的 **2.2 倍**（Chrome 是 2.4 倍）。metop 用 PSS 排序和画面积，用 USS 回答"杀掉它能省多少"，并给出构成（anon / file / shmem / swap），用来区分堆泄漏和页缓存。
 
 ## 功能
 
@@ -32,8 +32,8 @@ RSS 会把每个共享页在每个进程里各算一遍，多进程应用因此�
 - **apps treemap**：按应用聚合（systemd `app-*.scope` → exe → comm），面积 ∝ PSS，长尾折叠为 `others`。
 - **可脚本化**：`--json`（`--fields` 点号投影）、`--diff`（`--min-delta` / `--top`），快照按 PID 稳定排序、可直接 diff。
 - **鼠标**：点击表格行或 treemap 图块选中，再点一次打开/展开/下钻；滚轮滚动；footer 按钮（帮助、主题、语言、视图、排序、过滤、进入、返回、退出）均可点击。
-- **中英文帮助**：`?` 打开当前页面的说明（进程、cgroup、应用、VMA 详情、下钻）；`--lang auto|en|zh`、`MTOP_LANG` 或运行时 `l` 切换语言。
-- **主题**：七套内置配色，其中 `btop` / `dracula` / `gruvbox-dark` / `kanagawa-wave` 的颜色取自 btop 自带主题；`--theme`、`MTOP_THEME` 或运行时 `t` 切换（不需要配置文件）。主题以真彩色定义，终端不支持 RGB 时自动量化到 256 色或 16 色，可用 `--color` 覆盖检测。
+- **中英文帮助**：`?` 打开当前页面的说明（进程、cgroup、应用、VMA 详情、下钻）；`--lang auto|en|zh`、`METOP_LANG` 或运行时 `l` 切换语言。
+- **主题**：七套内置配色，其中 `btop` / `dracula` / `gruvbox-dark` / `kanagawa-wave` 的颜色取自 btop 自带主题；`--theme`、`METOP_THEME` 或运行时 `t` 切换（不需要配置文件）。主题以真彩色定义，终端不支持 RGB 时自动量化到 256 色或 16 色，可用 `--color` 覆盖检测。
 
 ## 安装
 
@@ -41,24 +41,24 @@ RSS 会把每个共享页在每个进程里各算一遍，多进程应用因此�
 
 | 平台 | 产物 |
 |---|---|
-| Debian / Ubuntu | `mtop_0.3.0-1_amd64.deb` · `mtop_0.3.0-1_arm64.deb` |
-| Fedora / RHEL / openSUSE | `mtop-0.3.0-1.x86_64.rpm` · `mtop-0.3.0-1.aarch64.rpm` |
-| 任意发行版 | `mtop-v0.3.0-x86_64-unknown-linux-musl.tar.gz` · `…-aarch64-…` |
+| Debian / Ubuntu | `metop_0.4.0-1_amd64.deb` · `metop_0.4.0-1_arm64.deb` |
+| Fedora / RHEL / openSUSE | `metop-0.4.0-1.x86_64.rpm` · `metop-0.4.0-1.aarch64.rpm` |
+| 任意发行版 | `metop-v0.4.0-x86_64-unknown-linux-musl.tar.gz` · `…-aarch64-…` |
 
 ```sh
 # Debian / Ubuntu
-gh release download v0.3.0 --repo baka-world/mtop --pattern '*.deb'
-sudo dpkg -i mtop_0.3.0-1_amd64.deb
+gh release download v0.4.0 --repo baka-world/metop --pattern '*.deb'
+sudo dpkg -i metop_0.4.0-1_amd64.deb
 
 # Fedora / RHEL
-gh release download v0.3.0 --repo baka-world/mtop --pattern '*.rpm'
-sudo rpm -i mtop-0.3.0-1.x86_64.rpm
+gh release download v0.4.0 --repo baka-world/metop --pattern '*.rpm'
+sudo rpm -i metop-0.4.0-1.x86_64.rpm
 
-# 从 crates.io 安装（安装出的命令仍是 mtop）
+# 从 crates.io 安装（安装出的命令仍是 metop）
 cargo install metop
 
 # 从源码
-cargo build --release && sudo install -m755 target/release/mtop /usr/local/bin/
+cargo build --release && sudo install -m755 target/release/metop /usr/local/bin/
 ```
 
 二进制是静态链接（musl），deb 的 `Depends:` 为空。
@@ -66,14 +66,14 @@ cargo build --release && sudo install -m755 target/release/mtop /usr/local/bin/
 ## 用法
 
 ```
-mtop                       # 全系统
-mtop --pid 1234            # 启动即选中某个进程
-mtop --theme dracula       # default | btop | dracula | gruvbox-dark |
-                           # kanagawa-wave | light | ansi16（也可用 MTOP_THEME）
-mtop --color 256           # auto | truecolor | 256 | 16
-mtop --lang zh             # auto | en | zh（也可用 MTOP_LANG / l）
-mtop --json --fields procs.pid,procs.rss_kb
-mtop --diff a.json b.json --min-delta 50M
+metop                       # 全系统
+metop --pid 1234            # 启动即选中某个进程
+metop --theme dracula       # default | btop | dracula | gruvbox-dark |
+                           # kanagawa-wave | light | ansi16（也可用 METOP_THEME）
+metop --color 256           # auto | truecolor | 256 | 16
+metop --lang zh             # auto | en | zh（也可用 METOP_LANG / l）
+metop --json --fields procs.pid,procs.rss_kb
+metop --diff a.json b.json --min-delta 50M
 ```
 
 | 按键 | 作用 |
@@ -95,7 +95,7 @@ mtop --diff a.json b.json --min-delta 50M
 
 ![帮助面板](docs/images/help-zh.png)
 
-按 `?` 查看当前页面的顶部状态、列含义、颜色、标记和按键说明。`--lang auto|en|zh`、`MTOP_LANG` 或运行时 `l` 切换中英文；footer 按钮均可点击。截图使用 `dracula` 主题。
+按 `?` 查看当前页面的顶部状态、列含义、颜色、标记和按键说明。`--lang auto|en|zh`、`METOP_LANG` 或运行时 `l` 切换中英文；footer 按钮均可点击。截图使用 `dracula` 主题。
 
 ### 进程视图
 
@@ -126,10 +126,10 @@ mtop --diff a.json b.json --min-delta 50M
 ## 脚本化
 
 ```sh
-mtop --json > a.json                                      # 一次快照，PID 稳定排序
-mtop --json --fields procs.pid,procs.rss_kb > small.json  # 194 KB -> 23 KB
-sleep 30; mtop --json > b.json
-mtop --diff a.json b.json --min-delta 50M
+metop --json > a.json                                      # 一次快照，PID 稳定排序
+metop --json --fields procs.pid,procs.rss_kb > small.json  # 194 KB -> 23 KB
+sleep 30; metop --json > b.json
+metop --diff a.json b.json --min-delta 50M
 ```
 
 `--diff` 输出 ΔRSS / ΔPSS、当前值与 `new`/`gone` 标记；写快照的进程本身按 `self_pid` 排除。
@@ -137,7 +137,7 @@ mtop --diff a.json b.json --min-delta 50M
 ## 环境与权限
 
 - Linux + `/proc`；cgroup v2 可选（视图会说明缺失原因）。
-- `/proc/PID/smaps_rollup` 需要 ptrace 读权限：普通用户只能看到自己用户的进程（内核线程没有地址空间）。`sudo mtop` 才是全量——已实测 `264/264`、`denied=0`。
+- `/proc/PID/smaps_rollup` 需要 ptrace 读权限：普通用户只能看到自己用户的进程（内核线程没有地址空间）。`sudo metop` 才是全量——已实测 `264/264`、`denied=0`。
 - 口径与设计细节见 [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md)，root 验证清单见 [docs/VERIFY-ROOT.md](docs/VERIFY-ROOT.md)。
 
 ## 已知问题

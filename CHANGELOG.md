@@ -1,12 +1,23 @@
 # Changelog
 
-All notable changes to mtop are documented here. The format follows
+All notable changes to metop are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Before 1.0, a
 feature release bumps the minor version (`0.MINOR.0`); fixes bump the patch
 version (`0.MINOR.PATCH`).
 
 ## [Unreleased]
+
+## [0.4.0] - 2026-11-01
+
+### Changed
+
+- Project renamed from `mtop` to `metop`: the binary, library, crate, GitHub
+  repository, release assets and deb/rpm package names are now `metop`.
+- The `--json` schema is now `metop.snapshot.v1`; `--diff` still accepts old
+  `mtop.snapshot.v1` files.
+- Old v0.3.0 GitHub assets and the `metop 0.3.0` crate (which installed an
+  `mtop` binary) remain available; new installs use `cargo install metop`.
 
 ## [0.3.0] - 2026-11-01
 
@@ -73,7 +84,8 @@ version (`0.MINOR.PATCH`).
   accounting with PSI/OOM tracking, app treemap, `--json`/`--diff` scripting,
   and `.deb`/`.rpm`/static-musl packaging.
 
-[Unreleased]: https://github.com/baka-world/mtop/compare/v0.3.0...HEAD
-[0.3.0]: https://github.com/baka-world/mtop/compare/v0.2.0...v0.3.0
-[0.2.0]: https://github.com/baka-world/mtop/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/baka-world/mtop/releases/tag/v0.1.0
+[Unreleased]: https://github.com/baka-world/metop/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/baka-world/metop/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/baka-world/metop/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/baka-world/metop/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/baka-world/metop/releases/tag/v0.1.0

@@ -1,10 +1,10 @@
-# mtop 需求与设计约束
+# metop 需求与设计约束
 
-Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重复计算。mtop 的目标只有一个：**让"到底是谁占了内存"这个问题在终端里一次看清**，并且用 PSS/USS 给出不重复计算的答案，再下钻到具体的 VMA。
+Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重复计算。metop 的目标只有一个：**让"到底是谁占了内存"这个问题在终端里一次看清**，并且用 PSS/USS 给出不重复计算的答案，再下钻到具体的 VMA。
 
 ## 1. 用户与场景
 
-| 场景 | 需要什么 | mtop 的做法 |
+| 场景 | 需要什么 | metop 的做法 |
 |---|---|---|
 | 服务器内存吃紧，找元凶 | 按真实占用排序，而不是把共享库算 N 遍 | PSS 列 + RSS/PSS 比值 |
 | 容器/桌面里浏览器一堆进程 | 看清同一进程组内的分布 | 进程表 + VMA 映射聚合视图 |
@@ -66,9 +66,9 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | F27 | apps 视图选中并用 `Enter` 下钻到该应用的进程（`Esc` 清除过滤） | 同上 + `selected_row_is_tinted...` 同源的渲染测试 |
 | F28 | treemap 布局不变量：在界内、互不重叠、面积成比例 | `treemap_tiles_stay_inside_and_do_not_overlap`、`treemap_area_is_proportional_within_a_few_percent` |
 | F29 | apps 视图右上角显示选中应用的历史（120 点），按指标分别存储；RSS 模式在标题标注"overcounts shared" | `apps_history_tracks_each_metric_separately`、实机 `▅▇▇█…` |
-| F30 | 七套内置配色：`default`、`btop`、`dracula`、`gruvbox-dark`、`kanagawa-wave`、`light`、`ansi16`；后四套的颜色取自 btop 自带主题文件；`--theme`、`MTOP_THEME`、运行时 `t` 循环；不引入配置文件；默认主题的 chrome 配色（高亮/标题/严重度/treemap）与旧版逐色一致，PSS 构成使用主题色板且四类颜色互异；按终端能力自动以真彩/256/16 色渲染（btop 的 6×6×6 + 灰阶量化规则），`--color auto\|truecolor\|256\|16` 可覆盖 | `theme.rs` 单测（含量化）、`theme_key_cycles_...`、`ansi256_rendering_uses_indexed_colours_only`、`unknown_colour_mode_is_a_usage_error` |
+| F30 | 七套内置配色：`default`、`btop`、`dracula`、`gruvbox-dark`、`kanagawa-wave`、`light`、`ansi16`；后四套的颜色取自 btop 自带主题文件；`--theme`、`METOP_THEME`、运行时 `t` 循环；不引入配置文件；默认主题的 chrome 配色（高亮/标题/严重度/treemap）与旧版逐色一致，PSS 构成使用主题色板且四类颜色互异；按终端能力自动以真彩/256/16 色渲染（btop 的 6×6×6 + 灰阶量化规则），`--color auto\|truecolor\|256\|16` 可覆盖 | `theme.rs` 单测（含量化）、`theme_key_cycles_...`、`ansi256_rendering_uses_indexed_colours_only`、`unknown_colour_mode_is_a_usage_error` |
 | F32 | 鼠标支持：启用/退出时关闭鼠标捕获；点击表格行/treemap 图块选中，再点一次执行 Enter（详情/展开/下钻）；滚轮滚动；footer 为可点击命令栏，帮助层可滚轮滚动、点击外部关闭 | `mouse_selects_rows_scrolls_and_clicks_footer_buttons`、`mouse_click_selects_a_treemap_tile`、实机 pty 点击 `[? Help]` |
-| F31 | 每个视图（进程 / cgroup / apps / VMA 详情 / cgroup 下钻）有 `?` 帮助面板，解释顶部状态、列含义、标记和按键；支持中英文（`--lang auto\|en\|zh`、`MTOP_LANG`、运行时 `l`），不引入配置文件 | `i18n.rs` 单测、`help_overlay_is_per_page_and_bilingual`、`unknown_language_is_a_usage_error` |
+| F31 | 每个视图（进程 / cgroup / apps / VMA 详情 / cgroup 下钻）有 `?` 帮助面板，解释顶部状态、列含义、标记和按键；支持中英文（`--lang auto\|en\|zh`、`METOP_LANG`、运行时 `l`），不引入配置文件 | `i18n.rs` 单测、`help_overlay_is_per_page_and_bilingual`、`unknown_language_is_a_usage_error` |
 
 ## 5. 数据来源与精度
 
@@ -138,7 +138,7 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 4. **PID 复用**：扫描期间进程退出/复用 PID，某一行可能短暂混合两个进程的数据。
 4b. **读不到 ≠ 不占内存**：`n/a` 的进程（多为 root 进程）仍有 RSS，只是拿不到 PSS。要全量 PSS 就用 `sudo` 运行；这条限制来自内核的 ptrace 权限模型，不是实现缺陷。
 5. **内核线程**：`smaps_rollup` 为空，PSS 显示 `—`，不是 0。
-6. **快照的 new/gone 语义**：`--diff` 只比较两份快照，进程在两次采样之间重启会同时表现为 gone + new（PID 变化）；写快照的 `mtop` 自身按 `self_pid` 排除。
+6. **快照的 new/gone 语义**：`--diff` 只比较两份快照，进程在两次采样之间重启会同时表现为 gone + new（PID 变化）；写快照的 `metop` 自身按 `self_pid` 排除。
 7. **root 路径已实测**（原为风险，现为已验证）：`sudo scripts/verify-root.sh` 输出 `procs=447 covered=264 denied=0 no_mm=183`，`264 + 183 = 447`，`denied` 归零、无 `PSS > RSS`；TUI 表头从 `203/262 + 59 n/a (needs root)` 变为 `265/265` 且提示消失。记录见 [VERIFY-ROOT.md](VERIFY-ROOT.md#6-实测记录2026-10-31)。
 8. **ratatui 0.30 拆包后的 API 漂移**：`Cargo.toml` 用 `=0.30.2` 锁定，升级需单独评估。
 
@@ -147,15 +147,15 @@ Linux 上"内存"这件事，`htop` 只给 RSS，任务管理器把共享页重�
 | 项 | 状态 |
 |---|---|
 | 功能需求 F1–F23 | 全部实现，逐项有测试或实机抓帧 |
-| 自动化测试 / clippy | 98 tests，0 warning |
+| 自动化测试 / clippy | 99 tests，0 warning |
 | 单文件分发 | `cargo build --release` → 1.4 MB，无运行时依赖 |
 | LICENSE | MIT（与 `Cargo.toml` 一致） |
 | `--version` / `--help` | 已提供，`tests/cli.rs` 覆盖 |
 | root 路径 | 已实测：`procs=447 covered=264 denied=0 no_mm=183`（见 VERIFY-ROOT.md §6） |
 | CI | GitHub Actions：`fmt` / `clippy -D warnings` / 全量测试；打包任务构建 musl 二进制并校验 deb/rpm 的载荷与架构 |
-| 发布产物 | `v0.3.0` 已发布：amd64/arm64 的 `.deb` 与 `.rpm`、静态 musl `.tar.gz`、按目标生成的 `SHA256SUMS` |
-| crates.io | `metop 0.3.0` 已发布；`cargo install metop` 安装出的命令仍是 `mtop`；库名保持 `mtop` |
-| 仓库 | https://github.com/baka-world/mtop（public，MIT） |
+| 发布产物 | `v0.4.0` 已发布：amd64/arm64 的 `.deb` 与 `.rpm`、静态 musl `.tar.gz`、按目标生成的 `SHA256SUMS` |
+| crates.io | `metop 0.4.0` 已发布；`cargo install metop` 安装出的命令仍是 `metop`；库名保持 `metop` |
+| 仓库 | https://github.com/baka-world/metop（public，MIT） |
 
 ## 10. 里程碑
 

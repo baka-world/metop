@@ -1,29 +1,29 @@
 use std::process::ExitCode;
 use std::sync::mpsc;
 
-use mtop::app::App;
-use mtop::i18n::Lang;
-use mtop::sampler;
-use mtop::theme::{ColorSupport, Theme};
+use metop::app::App;
+use metop::i18n::Lang;
+use metop::sampler;
+use metop::theme::{ColorSupport, Theme};
 use ratatui::crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use ratatui::crossterm::execute;
 
 const HELP: &str = "\
-mtop - Linux memory analysis TUI
+metop - Linux memory analysis TUI
 
 USAGE:
-    mtop [--pid PID] [--theme NAME] [--lang auto|en|zh]
-    mtop --json [--pid PID] [--fields procs.pid,procs.rss_kb]
-    mtop --diff A.json B.json [--min-delta 50M] [--top 20]
+    metop [--pid PID] [--theme NAME] [--lang auto|en|zh]
+    metop --json [--pid PID] [--fields procs.pid,procs.rss_kb]
+    metop --diff A.json B.json [--min-delta 50M] [--top 20]
 
 OPTIONS:
     -p, --pid PID   start with PID selected (also enables Enter drill-down)
         --theme NAME  TUI colour theme: default, btop, dracula,
                       gruvbox-dark, kanagawa-wave, light, ansi16
-                      (also MTOP_THEME; `t` switches at runtime)
+                      (also METOP_THEME; `t` switches at runtime)
         --color MODE  colour depth: auto, truecolor, 256, 16
                       (auto follows COLORTERM/TERM)
-        --lang LANG   UI language: auto, en, zh (also MTOP_LANG; `l` toggles)
+        --lang LANG   UI language: auto, en, zh (also METOP_LANG; `l` toggles)
         --json      print one snapshot as JSON and exit (diffable; no TUI)
         --fields P  comma-separated dotted paths to keep, e.g.
                     procs.pid,procs.comm,procs.pss.pss_kb (schema/at always kept)
@@ -52,7 +52,7 @@ fn main() -> ExitCode {
     let mut json_out = false;
     let mut fields: Vec<String> = Vec::new();
     let mut diff: Option<(String, String)> = None;
-    let mut diff_opts = mtop::diff::Opts::default();
+    let mut diff_opts = metop::diff::Opts::default();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut i = 0;
     while i < args.len() {
@@ -62,7 +62,7 @@ fn main() -> ExitCode {
                 match args.get(i).and_then(|s| s.parse::<u32>().ok()) {
                     Some(pid) => start_pid = Some(pid),
                     None => {
-                        eprintln!("mtop: --pid needs a numeric pid");
+                        eprintln!("metop: --pid needs a numeric pid");
                         return ExitCode::from(2);
                     }
                 }
@@ -74,14 +74,14 @@ fn main() -> ExitCode {
                         Some(t) => theme = Some(t),
                         None => {
                             eprintln!(
-                                "mtop: unknown theme {name:?}; choose one of {}",
+                                "metop: unknown theme {name:?}; choose one of {}",
                                 Theme::NAMES
                             );
                             return ExitCode::from(2);
                         }
                     },
                     None => {
-                        eprintln!("mtop: --theme needs a name ({})", Theme::NAMES);
+                        eprintln!("metop: --theme needs a name ({})", Theme::NAMES);
                         return ExitCode::from(2);
                     }
                 }
@@ -91,7 +91,7 @@ fn main() -> ExitCode {
                 match args.get(i).and_then(|name| Lang::parse(name)) {
                     Some(mode) => lang = Some(mode),
                     None => {
-                        eprintln!("mtop: --lang needs one of {}", Lang::NAMES);
+                        eprintln!("metop: --lang needs one of {}", Lang::NAMES);
                         return ExitCode::from(2);
                     }
                 }
@@ -101,13 +101,13 @@ fn main() -> ExitCode {
                 match args.get(i).and_then(|name| ColorSupport::parse(name)) {
                     Some(mode) => support = Some(mode),
                     None => {
-                        eprintln!("mtop: --color needs one of {}", ColorSupport::NAMES);
+                        eprintln!("metop: --color needs one of {}", ColorSupport::NAMES);
                         return ExitCode::from(2);
                     }
                 }
             }
             "-V" | "--version" => {
-                println!("mtop {}", env!("CARGO_PKG_VERSION"));
+                println!("metop {}", env!("CARGO_PKG_VERSION"));
                 return ExitCode::SUCCESS;
             }
             "--json" => json_out = true,
@@ -122,22 +122,22 @@ fn main() -> ExitCode {
                             .map(str::to_string)
                             .collect();
                         if fields.is_empty() {
-                            eprintln!("mtop: --fields needs at least one path");
+                            eprintln!("metop: --fields needs at least one path");
                             return ExitCode::from(2);
                         }
                     }
                     None => {
-                        eprintln!("mtop: --fields needs a comma-separated list");
+                        eprintln!("metop: --fields needs a comma-separated list");
                         return ExitCode::from(2);
                     }
                 }
             }
             "--min-delta" => {
                 i += 1;
-                match args.get(i).and_then(|s| mtop::diff::parse_size(s)) {
+                match args.get(i).and_then(|s| metop::diff::parse_size(s)) {
                     Some(kb) => diff_opts.min_delta_kb = kb,
                     None => {
-                        eprintln!("mtop: --min-delta needs a size like 50M or 512k");
+                        eprintln!("metop: --min-delta needs a size like 50M or 512k");
                         return ExitCode::from(2);
                     }
                 }
@@ -147,7 +147,7 @@ fn main() -> ExitCode {
                 match args.get(i).and_then(|s| s.parse::<usize>().ok()) {
                     Some(n) => diff_opts.top = n,
                     None => {
-                        eprintln!("mtop: --top needs a number");
+                        eprintln!("metop: --top needs a number");
                         return ExitCode::from(2);
                     }
                 }
@@ -161,7 +161,7 @@ fn main() -> ExitCode {
                         i += 2;
                     }
                     _ => {
-                        eprintln!("mtop: --diff needs two JSON snapshot paths");
+                        eprintln!("metop: --diff needs two JSON snapshot paths");
                         return ExitCode::from(2);
                     }
                 }
@@ -171,7 +171,7 @@ fn main() -> ExitCode {
                 return ExitCode::SUCCESS;
             }
             other => {
-                eprintln!("mtop: unknown argument {other:?}\n\n{HELP}");
+                eprintln!("metop: unknown argument {other:?}\n\n{HELP}");
                 return ExitCode::from(2);
             }
         }
@@ -182,18 +182,18 @@ fn main() -> ExitCode {
         let read = |p: &str| std::fs::read_to_string(p).map_err(|e| format!("{p}: {e}"));
         let text = read(&a_path)
             .and_then(|a| Ok((a, read(&b_path)?)))
-            .and_then(|(a, b)| mtop::diff::render(&a, &b, &diff_opts));
+            .and_then(|(a, b)| metop::diff::render(&a, &b, &diff_opts));
         return match text {
-            Ok(text) => match mtop::json::write_str(&text) {
+            Ok(text) => match metop::json::write_str(&text) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => ExitCode::SUCCESS,
                 Err(e) => {
-                    eprintln!("mtop: {e}");
+                    eprintln!("metop: {e}");
                     ExitCode::FAILURE
                 }
             },
             Err(e) => {
-                eprintln!("mtop: {e}");
+                eprintln!("metop: {e}");
                 ExitCode::from(2)
             }
         };
@@ -202,30 +202,30 @@ fn main() -> ExitCode {
     if json_out {
         // Detail is only worth serializing when a pid was explicitly asked for.
         let snap = sampler::snapshot_once(start_pid, start_pid.is_some());
-        let text = match mtop::json::render(&snap, &fields) {
+        let text = match metop::json::render(&snap, &fields) {
             Ok(text) => text,
             Err(e) => {
-                eprintln!("mtop: {e}");
+                eprintln!("metop: {e}");
                 return ExitCode::from(2);
             }
         };
-        return match mtop::json::write_str(&text) {
+        return match metop::json::write_str(&text) {
             Ok(()) => ExitCode::SUCCESS,
-            // `mtop --json | head` is normal usage, not an error.
+            // `metop --json | head` is normal usage, not an error.
             Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => ExitCode::SUCCESS,
             Err(e) => {
-                eprintln!("mtop: {e}");
+                eprintln!("metop: {e}");
                 ExitCode::FAILURE
             }
         };
     }
 
-    // --theme wins; MTOP_THEME is the shell/alias convenience. A bad env value
-    // warns instead of making every mtop invocation fail.
-    let theme = theme.unwrap_or_else(|| match std::env::var("MTOP_THEME") {
+    // --theme wins; METOP_THEME is the shell/alias convenience. A bad env value
+    // warns instead of making every metop invocation fail.
+    let theme = theme.unwrap_or_else(|| match std::env::var("METOP_THEME") {
         Ok(name) => Theme::by_name(&name).unwrap_or_else(|| {
             eprintln!(
-                "mtop: ignoring MTOP_THEME={name:?}; choose one of {}",
+                "metop: ignoring METOP_THEME={name:?}; choose one of {}",
                 Theme::NAMES
             );
             Theme::DEFAULT
@@ -234,10 +234,10 @@ fn main() -> ExitCode {
     });
 
     let support = support.unwrap_or_else(ColorSupport::detect);
-    let lang = lang.unwrap_or_else(|| match std::env::var("MTOP_LANG") {
+    let lang = lang.unwrap_or_else(|| match std::env::var("METOP_LANG") {
         Ok(value) => Lang::parse(&value).unwrap_or_else(|| {
             eprintln!(
-                "mtop: ignoring MTOP_LANG={value:?}; choose one of {}",
+                "metop: ignoring METOP_LANG={value:?}; choose one of {}",
                 Lang::NAMES
             );
             Lang::detect()
@@ -265,7 +265,7 @@ fn main() -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("mtop: {e}");
+            eprintln!("metop: {e}");
             ExitCode::FAILURE
         }
     }

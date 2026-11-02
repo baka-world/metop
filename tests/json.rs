@@ -4,13 +4,13 @@
 use std::process::Command;
 
 fn run(args: &[&str]) -> serde_json::Value {
-    let out = Command::new(env!("CARGO_BIN_EXE_mtop"))
+    let out = Command::new(env!("CARGO_BIN_EXE_metop"))
         .args(args)
         .output()
-        .expect("spawn mtop");
+        .expect("spawn metop");
     assert!(
         out.status.success(),
-        "mtop {args:?} failed: {}",
+        "metop {args:?} failed: {}",
         String::from_utf8_lossy(&out.stderr)
     );
     serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
@@ -25,7 +25,7 @@ fn run(args: &[&str]) -> serde_json::Value {
 #[test]
 fn snapshot_is_sorted_and_self_consistent() {
     let v = run(&["--json"]);
-    assert_eq!(v["schema"], "mtop.snapshot.v1");
+    assert_eq!(v["schema"], "metop.snapshot.v1");
 
     let procs = v["procs"].as_array().expect("procs array");
     assert!(
@@ -147,7 +147,7 @@ fn fields_projection_keeps_only_requested_paths() {
     let filtered = run(&["--json", "--fields", "procs.pid,procs.rss_kb"]);
 
     assert!(filtered.get("mem").is_none(), "unselected section leaked");
-    assert_eq!(filtered["schema"], "mtop.snapshot.v1");
+    assert_eq!(filtered["schema"], "metop.snapshot.v1");
     assert!(filtered["at_unix_ms"].is_u64());
     let proc = &filtered["procs"][0];
     assert!(proc["pid"].is_u64());
@@ -162,10 +162,10 @@ fn fields_projection_keeps_only_requested_paths() {
 
 #[test]
 fn unknown_field_paths_are_rejected() {
-    let out = Command::new(env!("CARGO_BIN_EXE_mtop"))
+    let out = Command::new(env!("CARGO_BIN_EXE_metop"))
         .args(["--json", "--fields", "procs.nope"])
         .output()
-        .expect("spawn mtop");
+        .expect("spawn metop");
     assert_eq!(out.status.code(), Some(2));
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.contains("unknown field path"), "unhelpful error: {err}");

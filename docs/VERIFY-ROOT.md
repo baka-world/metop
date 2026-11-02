@@ -16,8 +16,8 @@ capsh --print 2>/dev/null | grep -i ptrace   # 容器里可能被 drop 掉 CAP_S
 ## 1. 非 root 基线（先跑一遍，记下数字）
 
 ```sh
-./target/release/mtop --json --fields sampling > /tmp/mtop-user.json
-cat /tmp/mtop-user.json
+./target/release/metop --json --fields sampling > /tmp/metop-user.json
+cat /tmp/metop-user.json
 ```
 
 本机实测（439 个 PID）：
@@ -33,7 +33,7 @@ cat /tmp/mtop-user.json
 ## 2. root 运行
 
 ```sh
-sudo ./target/release/mtop
+sudo ./target/release/metop
 ```
 
 **预期变化**（与上表对照）：

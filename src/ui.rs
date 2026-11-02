@@ -134,7 +134,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             f.render_widget(
                 Paragraph::new(t.sampling())
                     .alignment(Alignment::Center)
-                    .block(Block::new().borders(Borders::ALL).title(" mtop ")),
+                    .block(Block::new().borders(Borders::ALL).title(" metop ")),
                 chunks[1],
             );
         }
@@ -150,7 +150,7 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
     let t = T(app.lang);
     let cols = Layout::horizontal([Constraint::Min(48), Constraint::Length(32)]).split(area);
     let Some(snap) = &app.snap else {
-        f.render_widget(Paragraph::new("mtop"), cols[0]);
+        f.render_widget(Paragraph::new("metop"), cols[0]);
         return;
     };
     let used = snap.mem.total_kb.saturating_sub(snap.mem.avail_kb);
@@ -168,7 +168,7 @@ fn header(f: &mut Frame, area: Rect, app: &App) {
     };
     let swap_used = snap.mem.swap_total_kb.saturating_sub(snap.mem.swap_free_kb);
     let line1 = Line::from(vec![
-        Span::styled(" mtop ", p.highlight().add_modifier(Modifier::BOLD)),
+        Span::styled(" metop ", p.highlight().add_modifier(Modifier::BOLD)),
         Span::raw(tr_fmt!(
             t,
             " {} procs  mem ",

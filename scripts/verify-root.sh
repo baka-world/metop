@@ -2,19 +2,19 @@
 # Verify that running with the needed privilege gives full PSS coverage.
 #
 #   sudo scripts/verify-root.sh
-#   MTOP_BIN=/path/to/mtop scripts/verify-root.sh   # non-default binary
+#   METOP_BIN=/path/to/metop scripts/verify-root.sh   # non-default binary
 #
 # Exit codes: 0 OK, 1 assertions failed, 2 setup problem.
 # See docs/VERIFY-ROOT.md for what each number means.
 set -eu
 
-bin="${MTOP_BIN:-./target/release/mtop}"
+bin="${METOP_BIN:-./target/release/metop}"
 if [ ! -x "$bin" ]; then
     echo "not executable: $bin (run: cargo build --release)" >&2
     exit 2
 fi
 
-tmp=$(mktemp "${TMPDIR:-/tmp}/mtop-verify.XXXXXX")
+tmp=$(mktemp "${TMPDIR:-/tmp}/metop-verify.XXXXXX")
 trap 'rm -f "$tmp"' EXIT INT TERM
 
 # Only the fields the checks need: keeps the snapshot small on big machines.

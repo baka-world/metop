@@ -3,10 +3,10 @@
 use std::process::Command;
 
 fn run(args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_mtop"))
+    Command::new(env!("CARGO_BIN_EXE_metop"))
         .args(args)
         .output()
-        .expect("spawn mtop")
+        .expect("spawn metop")
 }
 
 #[test]
@@ -18,7 +18,7 @@ fn version_reports_the_package_version() {
         text.contains(env!("CARGO_PKG_VERSION")),
         "version mismatch: {text}"
     );
-    assert!(text.starts_with("mtop "), "unexpected format: {text}");
+    assert!(text.starts_with("metop "), "unexpected format: {text}");
 
     // -V is the conventional short form.
     let short = run(&["-V"]);

@@ -1,4 +1,4 @@
-//! mtop: Linux memory analysis TUI.
+//! metop: Linux memory analysis TUI.
 //!
 //! Two-tier sampling, driven by measured costs:
 //!   tier 1 (every tick): /proc/<pid>/statm, ~15-30 ms for the whole system
